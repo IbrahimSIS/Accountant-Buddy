@@ -72,7 +72,7 @@ export function AppSidebar() {
         const isActive = location.pathname === item.to;
         return <NavLink key={item.to} to={item.to} className={cn("sidebar-link", isActive && "active", collapsed && "justify-center px-2")} title={collapsed ? item.label : undefined}>
               <item.icon className="h-5 w-5 shrink-0 text-stone-50" />
-              {!collapsed && <span className="text-sm text-slate-200 bg-secondary-foreground">{item.label}</span>}
+              {!collapsed && <span className="text-secondary">{item.label}</span>}
             </NavLink>;
       })}
       </nav>
