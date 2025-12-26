@@ -62,7 +62,7 @@ export function AppSidebar() {
             </div>
           </div>}
         <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)} className="h-8 w-8 text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground">
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {collapsed ? <ChevronRight className="h-4 w-4 text-stone-50" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
 
