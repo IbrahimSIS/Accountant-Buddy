@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,8 @@ import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { transactionSchema, TransactionFormData } from "@/lib/validations";
+import { z } from "zod";
 
 interface Transaction {
   id: string;
@@ -55,6 +58,8 @@ interface Transaction {
   amount: number;
   type: string;
   category_id: string | null;
+  account_id: string | null;
+  notes: string | null;
   source: string;
   created_at: string;
 }
@@ -65,16 +70,32 @@ interface Client {
   currency: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface Account {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+}
+
 export default function TransactionsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -82,7 +103,10 @@ export default function TransactionsPage() {
     date: new Date(),
     description: "",
     amount: "",
-    type: "expense",
+    type: "expense" as "income" | "expense" | "transfer",
+    category_id: "",
+    account_id: "",
+    notes: "",
   });
 
   useEffect(() => {
@@ -118,6 +142,8 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (selectedClient) {
       fetchTransactions();
+      fetchCategories();
+      fetchAccounts();
     }
   }, [selectedClient]);
 
@@ -151,20 +177,70 @@ export default function TransactionsPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    if (!selectedClient) return;
+
+    const { data, error } = await supabase
+      .from("categories")
+      .select("id, name, type")
+      .eq("client_id", selectedClient)
+      .order("name");
+
+    if (!error && data) {
+      setCategories(data);
+    }
+  };
+
+  const fetchAccounts = async () => {
+    if (!selectedClient) return;
+
+    const { data, error } = await supabase
+      .from("accounts")
+      .select("id, code, name, type")
+      .eq("client_id", selectedClient)
+      .order("code");
+
+    if (!error && data) {
+      setAccounts(data);
+    }
+  };
+
+  const validateForm = (): boolean => {
+    try {
+      transactionSchema.parse(formData);
+      setErrors({});
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: Record<string, string> = {};
+        error.errors.forEach((err) => {
+          if (err.path[0]) {
+            newErrors[err.path[0] as string] = err.message;
+          }
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.description.trim() || !formData.amount) {
-      toast.error("Description and amount are required");
+    if (!validateForm()) {
+      toast.error("Please fix the form errors");
       return;
     }
 
     const transactionData = {
       client_id: selectedClient,
       date: format(formData.date, "yyyy-MM-dd"),
-      description: formData.description,
+      description: formData.description.trim(),
       amount: parseFloat(formData.amount),
       type: formData.type,
+      category_id: formData.category_id || null,
+      account_id: formData.account_id || null,
+      notes: formData.notes?.trim() || null,
       source: "manual" as const,
     };
 
@@ -212,7 +288,11 @@ export default function TransactionsPage() {
       description: transaction.description,
       amount: String(transaction.amount),
       type: transaction.type as "income" | "expense" | "transfer",
+      category_id: transaction.category_id || "",
+      account_id: transaction.account_id || "",
+      notes: transaction.notes || "",
     });
+    setErrors({});
     setIsDialogOpen(true);
   };
 
@@ -224,10 +304,17 @@ export default function TransactionsPage() {
       description: "",
       amount: "",
       type: "expense",
+      category_id: "",
+      account_id: "",
+      notes: "",
     });
+    setErrors({});
   };
 
   const selectedClientData = clients.find((c) => c.id === selectedClient);
+  const filteredCategories = categories.filter(
+    (c) => formData.type === "transfer" || c.type === formData.type
+  );
 
   const filteredTransactions = transactions.filter((t) => {
     const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -274,7 +361,7 @@ export default function TransactionsPage() {
                   Add Transaction
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
                   <DialogTitle>
                     {editingTransaction ? "Edit Transaction" : "Add Transaction"}
@@ -293,7 +380,10 @@ export default function TransactionsPage() {
                         <PopoverTrigger asChild>
                           <Button
                             variant="outline"
-                            className="w-full justify-start text-left font-normal"
+                            className={cn(
+                              "w-full justify-start text-left font-normal",
+                              errors.date && "border-destructive"
+                            )}
                           >
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {format(formData.date, "PPP")}
@@ -310,6 +400,9 @@ export default function TransactionsPage() {
                           />
                         </PopoverContent>
                       </Popover>
+                      {errors.date && (
+                        <p className="text-sm text-destructive">{errors.date}</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="description">Description *</Label>
@@ -320,8 +413,11 @@ export default function TransactionsPage() {
                           setFormData({ ...formData, description: e.target.value })
                         }
                         placeholder="Office supplies purchase"
-                        required
+                        className={cn(errors.description && "border-destructive")}
                       />
+                      {errors.description && (
+                        <p className="text-sm text-destructive">{errors.description}</p>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -330,20 +426,24 @@ export default function TransactionsPage() {
                           id="amount"
                           type="number"
                           step="0.01"
+                          min="0"
                           value={formData.amount}
                           onChange={(e) =>
                             setFormData({ ...formData, amount: e.target.value })
                           }
                           placeholder="0.00"
-                          required
+                          className={cn(errors.amount && "border-destructive")}
                         />
+                        {errors.amount && (
+                          <p className="text-sm text-destructive">{errors.amount}</p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="type">Type</Label>
                         <Select
                           value={formData.type}
                           onValueChange={(value: "income" | "expense" | "transfer") =>
-                            setFormData({ ...formData, type: value })
+                            setFormData({ ...formData, type: value, category_id: "" })
                           }
                         >
                           <SelectTrigger>
@@ -356,6 +456,66 @@ export default function TransactionsPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="category">Category</Label>
+                        <Select
+                          value={formData.category_id}
+                          onValueChange={(value) =>
+                            setFormData({ ...formData, category_id: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">No Category</SelectItem>
+                            {filteredCategories.map((category) => (
+                              <SelectItem key={category.id} value={category.id}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="account">Account</Label>
+                        <Select
+                          value={formData.account_id}
+                          onValueChange={(value) =>
+                            setFormData({ ...formData, account_id: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">No Account</SelectItem>
+                            {accounts.map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.code} - {account.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="notes">Notes</Label>
+                      <Textarea
+                        id="notes"
+                        value={formData.notes}
+                        onChange={(e) =>
+                          setFormData({ ...formData, notes: e.target.value })
+                        }
+                        placeholder="Additional notes..."
+                        rows={2}
+                        className={cn(errors.notes && "border-destructive")}
+                      />
+                      {errors.notes && (
+                        <p className="text-sm text-destructive">{errors.notes}</p>
+                      )}
                     </div>
                   </div>
                   <DialogFooter>
@@ -468,72 +628,89 @@ export default function TransactionsPage() {
                 <tr>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Category</th>
                   <th>Type</th>
                   <th className="text-right">Amount</th>
                   <th className="w-[50px]"></th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTransactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td className="font-medium">
-                      {format(new Date(transaction.date), "MMM d, yyyy")}
-                    </td>
-                    <td>{transaction.description}</td>
-                    <td>
-                      <span
-                        className={cn(
+                {filteredTransactions.map((transaction) => {
+                  const category = categories.find(c => c.id === transaction.category_id);
+                  return (
+                    <tr key={transaction.id}>
+                      <td className="font-medium">
+                        {format(new Date(transaction.date), "MMM d, yyyy")}
+                      </td>
+                      <td>
+                        <div>
+                          <span>{transaction.description}</span>
+                          {transaction.notes && (
+                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {transaction.notes}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={cn(
                           "badge-status",
-                          transaction.type === "income" && "badge-success",
-                          transaction.type === "expense" && "badge-error",
-                          transaction.type === "transfer" && "badge-warning"
-                        )}
-                      >
-                        {transaction.type === "income" && (
-                          <ArrowUpRight className="mr-1 h-3 w-3" />
-                        )}
-                        {transaction.type === "expense" && (
-                          <ArrowDownRight className="mr-1 h-3 w-3" />
-                        )}
-                        {transaction.type}
-                      </span>
-                    </td>
-                    <td
-                      className={cn(
-                        "text-right font-mono",
-                        transaction.type === "income" && "amount-positive",
-                        transaction.type === "expense" && "amount-negative"
-                      )}
-                    >
-                      {transaction.type === "income" ? "+" : "-"}
-                      {selectedClientData?.currency} {transaction.amount.toLocaleString()}
-                    </td>
-                    <td>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => openEditDialog(transaction)}
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(transaction.id)}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
+                          category ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                        )}>
+                          {category?.name || "Uncategorized"}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={cn(
+                            "badge-status",
+                            transaction.type === "income" && "badge-success",
+                            transaction.type === "expense" && "badge-error",
+                            transaction.type === "transfer" && "badge-warning"
+                          )}
+                        >
+                          {transaction.type === "income" && (
+                            <ArrowUpRight className="mr-1 h-3 w-3" />
+                          )}
+                          {transaction.type === "expense" && (
+                            <ArrowDownRight className="mr-1 h-3 w-3" />
+                          )}
+                          {transaction.type}
+                        </span>
+                      </td>
+                      <td className={cn(
+                        "text-right font-medium",
+                        transaction.type === "income" && "text-accent",
+                        transaction.type === "expense" && "text-destructive"
+                      )}>
+                        {transaction.type === "income" ? "+" : "-"}
+                        {selectedClientData?.currency} {transaction.amount.toLocaleString()}
+                      </td>
+                      <td>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEditDialog(transaction)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(transaction.id)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
