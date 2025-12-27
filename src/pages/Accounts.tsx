@@ -25,7 +25,6 @@ import {
   Plus,
   Search,
   BookOpen,
-  ChevronRight,
   RefreshCw,
   MoreHorizontal,
   Pencil,
@@ -37,9 +36,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
+import { accountSchema } from "@/lib/validations";
+import { z } from "zod";
 
 type AccountType = "asset" | "liability" | "equity" | "income" | "expense";
 
@@ -82,6 +93,8 @@ export default function AccountsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -150,20 +163,39 @@ export default function AccountsPage() {
     }
   };
 
+  const validateForm = (): boolean => {
+    try {
+      accountSchema.parse(formData);
+      setErrors({});
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: Record<string, string> = {};
+        error.errors.forEach((err) => {
+          if (err.path[0]) {
+            newErrors[err.path[0] as string] = err.message;
+          }
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.code.trim() || !formData.name.trim()) {
-      toast.error("Code and name are required");
+    if (!validateForm()) {
+      toast.error("Please fix the form errors");
       return;
     }
 
     const accountData = {
       client_id: selectedClient,
-      code: formData.code,
-      name: formData.name,
+      code: formData.code.trim(),
+      name: formData.name.trim(),
       type: formData.type,
-      description: formData.description || null,
+      description: formData.description?.trim() || null,
     };
 
     if (editingAccount) {
@@ -196,15 +228,18 @@ export default function AccountsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("accounts").delete().eq("id", id);
+  const handleDelete = async () => {
+    if (!deleteAccountId) return;
+
+    const { error } = await supabase.from("accounts").delete().eq("id", deleteAccountId);
 
     if (error) {
-      toast.error("Failed to delete account");
+      toast.error("Failed to delete account. It may be in use by transactions.");
     } else {
       toast.success("Account deleted");
       fetchAccounts();
     }
+    setDeleteAccountId(null);
   };
 
   const openEditDialog = (account: Account) => {
@@ -215,6 +250,7 @@ export default function AccountsPage() {
       type: account.type,
       description: account.description || "",
     });
+    setErrors({});
     setIsDialogOpen(true);
   };
 
@@ -227,6 +263,7 @@ export default function AccountsPage() {
       type: "expense",
       description: "",
     });
+    setErrors({});
   };
 
   const filteredAccounts = accounts.filter(
@@ -289,8 +326,11 @@ export default function AccountsPage() {
                           setFormData({ ...formData, code: e.target.value })
                         }
                         placeholder="1000"
-                        required
+                        className={cn(errors.code && "border-destructive")}
                       />
+                      {errors.code && (
+                        <p className="text-sm text-destructive">{errors.code}</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="type">Type *</Label>
@@ -322,8 +362,11 @@ export default function AccountsPage() {
                         setFormData({ ...formData, name: e.target.value })
                       }
                       placeholder="Cash on Hand"
-                      required
+                      className={cn(errors.name && "border-destructive")}
                     />
+                    {errors.name && (
+                      <p className="text-sm text-destructive">{errors.name}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="description">Description</Label>
@@ -334,7 +377,11 @@ export default function AccountsPage() {
                         setFormData({ ...formData, description: e.target.value })
                       }
                       placeholder="Optional description"
+                      className={cn(errors.description && "border-destructive")}
                     />
+                    {errors.description && (
+                      <p className="text-sm text-destructive">{errors.description}</p>
+                    )}
                   </div>
                 </div>
                 <DialogFooter>
@@ -411,7 +458,7 @@ export default function AccountsPage() {
                         {accountTypeLabels[type]}
                       </span>
                       <span className="text-sm text-muted-foreground">
-                        {accounts.length} accounts
+                        {accounts.length} account{accounts.length !== 1 && "s"}
                       </span>
                     </div>
                   </div>
@@ -446,7 +493,7 @@ export default function AccountsPage() {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => handleDelete(account.id)}
+                              onClick={() => setDeleteAccountId(account.id)}
                               className="text-destructive focus:text-destructive"
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
@@ -463,6 +510,24 @@ export default function AccountsPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteAccountId} onOpenChange={() => setDeleteAccountId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Account</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this account? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

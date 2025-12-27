@@ -37,8 +37,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
+import { clientSchema, ClientFormData } from "@/lib/validations";
+import { z } from "zod";
+import { cn } from "@/lib/utils";
 
 interface Client {
   id: string;
@@ -71,6 +84,8 @@ export default function ClientsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     name: "",
     currency: "JOD",
@@ -116,11 +131,30 @@ export default function ClientsPage() {
     }
   };
 
+  const validateForm = (): boolean => {
+    try {
+      clientSchema.parse(formData);
+      setErrors({});
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: Record<string, string> = {};
+        error.errors.forEach((err) => {
+          if (err.path[0]) {
+            newErrors[err.path[0] as string] = err.message;
+          }
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name.trim()) {
-      toast.error("Client name is required");
+    if (!validateForm()) {
+      toast.error("Please fix the form errors");
       return;
     }
 
@@ -128,11 +162,11 @@ export default function ClientsPage() {
       const { error } = await supabase
         .from("clients")
         .update({
-          name: formData.name,
+          name: formData.name.trim(),
           currency: formData.currency,
           fiscal_year_start: formData.fiscal_year_start,
-          contact_email: formData.contact_email || null,
-          contact_phone: formData.contact_phone || null,
+          contact_email: formData.contact_email?.trim() || null,
+          contact_phone: formData.contact_phone?.trim() || null,
         })
         .eq("id", editingClient.id);
 
@@ -145,11 +179,11 @@ export default function ClientsPage() {
       }
     } else {
       const { error } = await supabase.from("clients").insert({
-        name: formData.name,
+        name: formData.name.trim(),
         currency: formData.currency,
         fiscal_year_start: formData.fiscal_year_start,
-        contact_email: formData.contact_email || null,
-        contact_phone: formData.contact_phone || null,
+        contact_email: formData.contact_email?.trim() || null,
+        contact_phone: formData.contact_phone?.trim() || null,
         owner_user_id: session?.user.id,
       });
 
@@ -163,15 +197,18 @@ export default function ClientsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("clients").delete().eq("id", id);
+  const handleDelete = async () => {
+    if (!deleteClientId) return;
+
+    const { error } = await supabase.from("clients").delete().eq("id", deleteClientId);
 
     if (error) {
-      toast.error("Failed to delete client");
+      toast.error("Failed to delete client. Make sure all related data is removed first.");
     } else {
       toast.success("Client deleted");
       fetchClients();
     }
+    setDeleteClientId(null);
   };
 
   const openEditDialog = (client: Client) => {
@@ -183,6 +220,7 @@ export default function ClientsPage() {
       contact_email: client.contact_email || "",
       contact_phone: client.contact_phone || "",
     });
+    setErrors({});
     setIsDialogOpen(true);
   };
 
@@ -196,6 +234,7 @@ export default function ClientsPage() {
       contact_email: "",
       contact_phone: "",
     });
+    setErrors({});
   };
 
   const filteredClients = clients.filter((client) =>
@@ -251,8 +290,11 @@ export default function ClientsPage() {
                         setFormData({ ...formData, name: e.target.value })
                       }
                       placeholder="Acme Corporation"
-                      required
+                      className={cn(errors.name && "border-destructive")}
                     />
+                    {errors.name && (
+                      <p className="text-sm text-destructive">{errors.name}</p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -309,7 +351,11 @@ export default function ClientsPage() {
                         setFormData({ ...formData, contact_email: e.target.value })
                       }
                       placeholder="contact@client.com"
+                      className={cn(errors.contact_email && "border-destructive")}
                     />
+                    {errors.contact_email && (
+                      <p className="text-sm text-destructive">{errors.contact_email}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Contact Phone</Label>
@@ -321,7 +367,11 @@ export default function ClientsPage() {
                         setFormData({ ...formData, contact_phone: e.target.value })
                       }
                       placeholder="+962 7XX XXX XXX"
+                      className={cn(errors.contact_phone && "border-destructive")}
                     />
+                    {errors.contact_phone && (
+                      <p className="text-sm text-destructive">{errors.contact_phone}</p>
+                    )}
                   </div>
                 </div>
                 <DialogFooter>
@@ -398,7 +448,7 @@ export default function ClientsPage() {
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => handleDelete(client.id)}
+                        onClick={() => setDeleteClientId(client.id)}
                         className="text-destructive focus:text-destructive"
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
@@ -436,6 +486,24 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteClientId} onOpenChange={() => setDeleteClientId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Client</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this client? This action cannot be undone and will remove all associated data including transactions, accounts, and categories.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

@@ -7,6 +7,7 @@ import { AlertCard } from "@/components/dashboard/AlertCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { CategoryBreakdown } from "@/components/dashboard/CategoryBreakdown";
 import { Button } from "@/components/ui/button";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import {
   TrendingUp,
   TrendingDown,
@@ -16,11 +17,12 @@ import {
   Users,
   FileText,
   RefreshCw,
+  Banknote,
 } from "lucide-react";
-import { User, Session } from "@supabase/supabase-js";
+import { Session } from "@supabase/supabase-js";
 
-// Demo data for visualization
-const monthlyData = [
+// Demo data for when no real data exists
+const demoMonthlyData = [
   { month: "Jul", income: 45000, expense: 32000 },
   { month: "Aug", income: 52000, expense: 38000 },
   { month: "Sep", income: 48000, expense: 35000 },
@@ -29,7 +31,7 @@ const monthlyData = [
   { month: "Dec", income: 67000, expense: 45000 },
 ];
 
-const expenseCategories = [
+const demoExpenseCategories = [
   { name: "Salaries", value: 25000, color: "hsl(221, 83%, 40%)" },
   { name: "Rent", value: 8000, color: "hsl(173, 58%, 45%)" },
   { name: "Utilities", value: 3500, color: "hsl(262, 52%, 55%)" },
@@ -37,31 +39,22 @@ const expenseCategories = [
   { name: "Other", value: 3000, color: "hsl(215, 16%, 47%)" },
 ];
 
-const incomeCategories = [
-  { name: "Consulting", value: 35000, color: "hsl(173, 58%, 39%)" },
-  { name: "Projects", value: 22000, color: "hsl(221, 83%, 40%)" },
-  { name: "Retainers", value: 8000, color: "hsl(142, 71%, 45%)" },
-  { name: "Other", value: 2000, color: "hsl(215, 16%, 47%)" },
-];
-
 export default function Index() {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const dashboardData = useDashboardData();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
         setLoading(false);
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setUser(session?.user ?? null);
       setLoading(false);
     });
 
@@ -74,7 +67,7 @@ export default function Index() {
     }
   }, [loading, session, navigate]);
 
-  if (loading) {
+  if (loading || dashboardData.loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <RefreshCw className="h-8 w-8 animate-spin text-primary" />
@@ -86,6 +79,17 @@ export default function Index() {
     return null;
   }
 
+  // Use demo data if no real data exists
+  const hasRealData = dashboardData.transactionCount > 0;
+  const monthlyData = hasRealData ? dashboardData.monthlyData : demoMonthlyData;
+  const expenseCategories = hasRealData && dashboardData.expenseCategories.length > 0 
+    ? dashboardData.expenseCategories 
+    : demoExpenseCategories;
+
+  const formatCurrency = (amount: number) => {
+    return `JOD ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -95,14 +99,15 @@ export default function Index() {
             <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
               Overview of all clients' financial data
+              {!hasRealData && " (Demo data shown)"}
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={() => navigate("/reports")}>
               <FileText className="mr-2 h-4 w-4" />
               Generate Report
             </Button>
-            <Button size="sm">
+            <Button size="sm" onClick={() => navigate("/clients")}>
               <Plus className="mr-2 h-4 w-4" />
               Add Client
             </Button>
@@ -113,31 +118,40 @@ export default function Index() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title="Total Income"
-            value="JOD 67,000"
+            value={hasRealData ? formatCurrency(dashboardData.totalIncome) : "JOD 67,000"}
             subtitle="This month"
             icon={TrendingUp}
-            trend={{ value: 12.5, label: "vs last month" }}
+            trend={hasRealData && dashboardData.incomeTrend !== 0 ? { 
+              value: Math.round(dashboardData.incomeTrend * 10) / 10, 
+              label: "vs last month" 
+            } : undefined}
             variant="income"
           />
           <KPICard
             title="Total Expenses"
-            value="JOD 45,000"
+            value={hasRealData ? formatCurrency(dashboardData.totalExpenses) : "JOD 45,000"}
             subtitle="This month"
             icon={TrendingDown}
-            trend={{ value: -3.2, label: "vs last month" }}
+            trend={hasRealData && dashboardData.expenseTrend !== 0 ? { 
+              value: Math.round(dashboardData.expenseTrend * 10) / 10, 
+              label: "vs last month" 
+            } : undefined}
             variant="expense"
           />
           <KPICard
             title="Net Profit"
-            value="JOD 22,000"
+            value={hasRealData ? formatCurrency(dashboardData.netProfit) : "JOD 22,000"}
             subtitle="This month"
             icon={PiggyBank}
-            trend={{ value: 18.7, label: "vs last month" }}
+            trend={hasRealData && dashboardData.profitTrend !== 0 ? { 
+              value: Math.round(dashboardData.profitTrend * 10) / 10, 
+              label: "vs last month" 
+            } : undefined}
             variant="profit"
           />
           <KPICard
             title="Cash Balance"
-            value="JOD 156,400"
+            value={hasRealData ? formatCurrency(dashboardData.cashBalance) : "JOD 156,400"}
             subtitle="All accounts"
             icon={Wallet}
             variant="balance"
@@ -146,23 +160,40 @@ export default function Index() {
 
         {/* Alerts */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <AlertCard
-            type="warning"
-            title="12 Uncategorized Transactions"
-            description="Review and categorize imported transactions for accurate reporting."
-            action={{ label: "Review now", onClick: () => navigate("/transactions") }}
-          />
-          <AlertCard
-            type="error"
-            title="Bank Reconciliation Pending"
-            description="Main Account for Client ABC has unreconciled items from last month."
-            action={{ label: "Reconcile", onClick: () => navigate("/reconciliation") }}
-          />
+          {dashboardData.uncategorizedCount > 0 ? (
+            <AlertCard
+              type="warning"
+              title={`${dashboardData.uncategorizedCount} Uncategorized Transaction${dashboardData.uncategorizedCount > 1 ? 's' : ''}`}
+              description="Review and categorize transactions for accurate reporting."
+              action={{ label: "Review now", onClick: () => navigate("/transactions") }}
+            />
+          ) : (
+            <AlertCard
+              type="success"
+              title="All Transactions Categorized"
+              description="Great job! All your transactions have been categorized."
+            />
+          )}
+          {dashboardData.clientCount === 0 ? (
+            <AlertCard
+              type="warning"
+              title="No Clients Yet"
+              description="Get started by adding your first client to the system."
+              action={{ label: "Add Client", onClick: () => navigate("/clients") }}
+            />
+          ) : (
+            <AlertCard
+              type="success"
+              title={`${dashboardData.clientCount} Active Client${dashboardData.clientCount > 1 ? 's' : ''}`}
+              description="Manage your clients and their financial data."
+              action={{ label: "View Clients", onClick: () => navigate("/clients") }}
+            />
+          )}
           <AlertCard
             type="success"
-            title="Monthly Reports Ready"
-            description="December reports for 3 clients are ready for review and export."
-            action={{ label: "View reports", onClick: () => navigate("/reports") }}
+            title="Reports Ready"
+            description="Generate monthly P&L, Balance Sheet, and Cash Flow reports."
+            action={{ label: "View Reports", onClick: () => navigate("/reports") }}
           />
         </div>
 
@@ -200,7 +231,7 @@ export default function Index() {
                 <Users className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">8</p>
+                <p className="text-2xl font-bold">{dashboardData.clientCount}</p>
                 <p className="text-sm text-muted-foreground">Active Clients</p>
               </div>
             </div>
@@ -211,7 +242,7 @@ export default function Index() {
                 <FileText className="h-5 w-5 text-accent" />
               </div>
               <div>
-                <p className="text-2xl font-bold">156</p>
+                <p className="text-2xl font-bold">{dashboardData.transactionCount}</p>
                 <p className="text-sm text-muted-foreground">Transactions</p>
               </div>
             </div>
@@ -222,18 +253,22 @@ export default function Index() {
                 <TrendingUp className="h-5 w-5 text-success" />
               </div>
               <div>
-                <p className="text-2xl font-bold">24</p>
-                <p className="text-sm text-muted-foreground">Reports Generated</p>
+                <p className="text-2xl font-bold">
+                  {dashboardData.totalIncome > 0 
+                    ? Math.round((dashboardData.netProfit / dashboardData.totalIncome) * 100) 
+                    : 0}%
+                </p>
+                <p className="text-sm text-muted-foreground">Profit Margin</p>
               </div>
             </div>
           </div>
           <div className="rounded-xl border bg-card p-5">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-warning/10 p-2.5">
-                <Wallet className="h-5 w-5 text-warning" />
+                <Banknote className="h-5 w-5 text-warning" />
               </div>
               <div>
-                <p className="text-2xl font-bold">12</p>
+                <p className="text-2xl font-bold">{dashboardData.bankAccountCount}</p>
                 <p className="text-sm text-muted-foreground">Bank Accounts</p>
               </div>
             </div>
