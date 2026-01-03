@@ -520,6 +520,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_client_owner: {
+        Args: { _client_id: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       account_type: "asset" | "liability" | "equity" | "income" | "expense"
