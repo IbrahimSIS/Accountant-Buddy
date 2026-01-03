@@ -125,7 +125,8 @@ export default function ClientsPage() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      toast.error("Failed to load clients");
+      console.error("Supabase clients error:", error);
+      toast.error(`Failed to load clients: ${error.message}`);
     } else {
       setClients(data || []);
     }

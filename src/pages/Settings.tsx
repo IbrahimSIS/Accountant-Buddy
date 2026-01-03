@@ -22,6 +22,7 @@ import {
   Shield,
   RefreshCw,
   Save,
+  LogOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
@@ -110,6 +111,15 @@ export default function SettingsPage() {
       toast.success("Profile saved");
     }
     setSaving(false);
+  };
+
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error("Failed to sign out");
+    } else {
+      navigate("/auth");
+    }
   };
 
   if (loading) {
@@ -281,6 +291,25 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">
               Last password change: Never
             </p>
+          </div>
+        </div>
+
+        {/* Sign Out Section */}
+        <div className="rounded-xl border border-destructive/20 bg-card">
+          <div className="flex items-center gap-3 border-b border-destructive/20 px-6 py-4">
+            <LogOut className="h-5 w-5 text-destructive" />
+            <div>
+              <h2 className="font-semibold">Sign Out</h2>
+              <p className="text-sm text-muted-foreground">
+                End your current session
+              </p>
+            </div>
+          </div>
+          <div className="p-6">
+            <Button variant="destructive" onClick={handleSignOut}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
           </div>
         </div>
       </div>
