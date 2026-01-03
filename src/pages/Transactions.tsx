@@ -461,16 +461,16 @@ export default function TransactionsPage() {
                       <div className="space-y-2">
                         <Label htmlFor="category">Category</Label>
                         <Select
-                          value={formData.category_id}
+                          value={formData.category_id || "__none__"}
                           onValueChange={(value) =>
-                            setFormData({ ...formData, category_id: value })
+                            setFormData({ ...formData, category_id: value === "__none__" ? "" : value })
                           }
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">No Category</SelectItem>
+                            <SelectItem value="__none__">No Category</SelectItem>
                             {filteredCategories.map((category) => (
                               <SelectItem key={category.id} value={category.id}>
                                 {category.name}
@@ -482,16 +482,16 @@ export default function TransactionsPage() {
                       <div className="space-y-2">
                         <Label htmlFor="account">Account</Label>
                         <Select
-                          value={formData.account_id}
+                          value={formData.account_id || "__none__"}
                           onValueChange={(value) =>
-                            setFormData({ ...formData, account_id: value })
+                            setFormData({ ...formData, account_id: value === "__none__" ? "" : value })
                           }
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select account" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">No Account</SelectItem>
+                            <SelectItem value="__none__">No Account</SelectItem>
                             {accounts.map((account) => (
                               <SelectItem key={account.id} value={account.id}>
                                 {account.code} - {account.name}
