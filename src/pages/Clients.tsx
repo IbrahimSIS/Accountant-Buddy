@@ -49,9 +49,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
-import { clientSchema, ClientFormData } from "@/lib/validations";
+import { clientSchema } from "@/lib/validations";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
+import { BankSelector } from "@/components/reconciliation/BankSelector";
+import { IBANInput } from "@/components/clients/IBANInput";
 
 interface Client {
   id: string;
@@ -60,6 +62,8 @@ interface Client {
   fiscal_year_start: number;
   contact_email: string | null;
   contact_phone: string | null;
+  bank_id: string | null;
+  iban: string | null;
   created_at: string;
 }
 
@@ -92,6 +96,8 @@ export default function ClientsPage() {
     fiscal_year_start: 1,
     contact_email: "",
     contact_phone: "",
+    bank_id: "",
+    iban: "",
   });
   const navigate = useNavigate();
 
@@ -168,6 +174,8 @@ export default function ClientsPage() {
           fiscal_year_start: formData.fiscal_year_start,
           contact_email: formData.contact_email?.trim() || null,
           contact_phone: formData.contact_phone?.trim() || null,
+          bank_id: formData.bank_id || null,
+          iban: formData.iban?.trim() || null,
         })
         .eq("id", editingClient.id);
 
@@ -185,6 +193,8 @@ export default function ClientsPage() {
         fiscal_year_start: formData.fiscal_year_start,
         contact_email: formData.contact_email?.trim() || null,
         contact_phone: formData.contact_phone?.trim() || null,
+        bank_id: formData.bank_id || null,
+        iban: formData.iban?.trim() || null,
         owner_user_id: session?.user.id,
       });
 
@@ -220,6 +230,8 @@ export default function ClientsPage() {
       fiscal_year_start: client.fiscal_year_start,
       contact_email: client.contact_email || "",
       contact_phone: client.contact_phone || "",
+      bank_id: client.bank_id || "",
+      iban: client.iban || "",
     });
     setErrors({});
     setIsDialogOpen(true);
@@ -234,6 +246,8 @@ export default function ClientsPage() {
       fiscal_year_start: 1,
       contact_email: "",
       contact_phone: "",
+      bank_id: "",
+      iban: "",
     });
     setErrors({});
   };
@@ -374,6 +388,28 @@ export default function ClientsPage() {
                       <p className="text-sm text-destructive">{errors.contact_phone}</p>
                     )}
                   </div>
+                  
+                  {/* Bank Information Section */}
+                  <div className="pt-2 border-t">
+                    <p className="text-sm font-medium text-muted-foreground mb-3">Bank Information</p>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Bank Name</Label>
+                        <BankSelector
+                          value={formData.bank_id}
+                          onValueChange={(value) => setFormData({ ...formData, bank_id: value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="iban">IBAN / Account Number</Label>
+                        <IBANInput
+                          value={formData.iban}
+                          onChange={(value) => setFormData({ ...formData, iban: value })}
+                          error={errors.iban}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={closeDialog}>
@@ -458,10 +494,15 @@ export default function ClientsPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-                {(client.contact_email || client.contact_phone) && (
+                {(client.contact_email || client.contact_phone || client.iban) && (
                   <div className="mt-4 space-y-1 text-sm text-muted-foreground">
                     {client.contact_email && <p>{client.contact_email}</p>}
                     {client.contact_phone && <p>{client.contact_phone}</p>}
+                    {client.iban && (
+                      <p className="font-mono text-xs">
+                        IBAN: {client.iban.replace(/(.{4})/g, "$1 ").trim()}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="mt-4 flex gap-2">

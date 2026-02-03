@@ -150,6 +150,7 @@ export default function ReconciliationPage() {
               value={selectedBankId}
               onValueChange={setSelectedBankId}
               disabled={!selectedClient}
+              rememberChoice={true}
             />
           </div>
           <div className="space-y-2">
