@@ -18,9 +18,9 @@ import {
   Plus,
   FileText,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
-import { cn } from "@/lib/utils";
+import { BankSelector } from "@/components/reconciliation/BankSelector";
+import { Label } from "@/components/ui/label";
 
 interface Client {
   id: string;
@@ -32,15 +32,17 @@ interface BankAccount {
   id: string;
   name: string;
   opening_balance: number;
+  bank_id: string | null;
 }
 
 export default function ReconciliationPage() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [_session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [selectedAccount, setSelectedAccount] = useState<string>("");
+  const [selectedBankId, setSelectedBankId] = useState<string>("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -91,7 +93,7 @@ export default function ReconciliationPage() {
 
     const { data, error } = await supabase
       .from("bank_accounts")
-      .select("id, name, opening_balance")
+      .select("id, name, opening_balance, bank_id")
       .eq("client_id", selectedClient)
       .order("name");
 
@@ -99,8 +101,6 @@ export default function ReconciliationPage() {
       setBankAccounts(data);
     }
   };
-
-  const selectedClientData = clients.find((c) => c.id === selectedClient);
 
   if (loading) {
     return (
@@ -128,31 +128,49 @@ export default function ReconciliationPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Select value={selectedClient} onValueChange={setSelectedClient}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select client" />
-            </SelectTrigger>
-            <SelectContent>
-              {clients.map((client) => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select bank account" />
-            </SelectTrigger>
-            <SelectContent>
-              {bankAccounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  {account.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Client</Label>
+            <Select value={selectedClient} onValueChange={setSelectedClient}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select client" />
+              </SelectTrigger>
+              <SelectContent>
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Bank</Label>
+            <BankSelector
+              value={selectedBankId}
+              onValueChange={setSelectedBankId}
+              disabled={!selectedClient}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Bank Account</Label>
+            <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select bank account" />
+              </SelectTrigger>
+              <SelectContent>
+                {bankAccounts
+                  .filter((account) =>
+                    selectedBankId ? account.bank_id === selectedBankId : true
+                  )
+                  .map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Empty State */}
