@@ -29,6 +29,8 @@ interface BankSelectorProps {
   onValueChange: (value: string) => void;
   disabled?: boolean;
   className?: string;
+  /** Whether to remember the user's choice in localStorage (default: true for reconciliation, false for forms) */
+  rememberChoice?: boolean;
 }
 
 const BANK_STORAGE_KEY = "preferred_bank_id";
@@ -64,6 +66,7 @@ export function BankSelector({
   onValueChange,
   disabled = false,
   className,
+  rememberChoice = false,
 }: BankSelectorProps) {
   const [open, setOpen] = useState(false);
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -73,15 +76,15 @@ export function BankSelector({
     fetchBanks();
   }, []);
 
-  // Set default from localStorage if no value provided
+  // Set default from localStorage if rememberChoice is enabled and no value provided
   useEffect(() => {
-    if (!value && banks.length > 0) {
+    if (rememberChoice && !value && banks.length > 0) {
       const storedBankId = localStorage.getItem(BANK_STORAGE_KEY);
       if (storedBankId && banks.some((b) => b.id === storedBankId)) {
         onValueChange(storedBankId);
       }
     }
-  }, [banks, value, onValueChange]);
+  }, [banks, value, onValueChange, rememberChoice]);
 
   const fetchBanks = async () => {
     setLoading(true);
@@ -98,7 +101,9 @@ export function BankSelector({
 
   const handleSelect = (bankId: string) => {
     onValueChange(bankId);
-    localStorage.setItem(BANK_STORAGE_KEY, bankId);
+    if (rememberChoice) {
+      localStorage.setItem(BANK_STORAGE_KEY, bankId);
+    }
     setOpen(false);
   };
 

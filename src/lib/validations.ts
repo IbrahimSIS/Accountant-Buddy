@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateIBAN } from "./iban-validation";
 
 export const clientSchema = z.object({
   name: z.string().trim().min(1, "Client name is required").max(100, "Name must be less than 100 characters"),
@@ -6,6 +7,11 @@ export const clientSchema = z.object({
   fiscal_year_start: z.number().min(1).max(12),
   contact_email: z.string().email("Invalid email address").or(z.literal("")).optional(),
   contact_phone: z.string().max(20, "Phone must be less than 20 characters").optional(),
+  bank_id: z.string().optional(),
+  iban: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    return validateIBAN(val).isValid;
+  }, "Invalid IBAN format"),
 });
 
 export type ClientFormData = z.infer<typeof clientSchema>;

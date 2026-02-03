@@ -220,11 +220,13 @@ export type Database = {
       clients: {
         Row: {
           address: string | null
+          bank_id: string | null
           contact_email: string | null
           contact_phone: string | null
           created_at: string
           currency: string
           fiscal_year_start: number
+          iban: string | null
           id: string
           name: string
           notes: string | null
@@ -233,11 +235,13 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          bank_id?: string | null
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
           currency?: string
           fiscal_year_start?: number
+          iban?: string | null
           id?: string
           name: string
           notes?: string | null
@@ -246,18 +250,28 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          bank_id?: string | null
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
           currency?: string
           fiscal_year_start?: number
+          iban?: string | null
           id?: string
           name?: string
           notes?: string | null
           owner_user_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_bank_id_fkey"
+            columns: ["bank_id"]
+            isOneToOne: false
+            referencedRelation: "banks"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
