@@ -1,0 +1,106 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 2503 >>
+stream
+BT
+/F2 18 Tf
+36 754 Td
+(Pro Accountant Hub - App Summary) Tj
+/F1 9.5 Tf
+36 733.8 Td
+(Accountant Buddy codebase) Tj
+/F2 11.5 Tf
+36 716.0999999999999 Td
+(What it is) Tj
+/F1 9.8 Tf
+36 702.3999999999999 Td
+(A web-based bookkeeping dashboard for managing multiple client ledgers, transactions, accounts, and) Tj
+36 690.3999999999999 Td
+(reports. Built as a React single-page app with Supabase for authentication and data.) Tj
+/F2 11.5 Tf
+36 672.3999999999999 Td
+(Who it is for) Tj
+/F1 9.8 Tf
+36 658.6999999999998 Td
+(Accountants or bookkeepers who manage finances for multiple clients and need a centralized workflow.) Tj
+/F2 11.5 Tf
+36 640.6999999999998 Td
+(What it does) Tj
+/F1 9.3 Tf
+36 626.9999999999998 Td
+(- Secure sign in and sign up flows backed by Supabase auth.) Tj
+36 615.4999999999998 Td
+(- Client management with currency and fiscal-year settings, plus search and edit/delete.) Tj
+36 603.9999999999998 Td
+(- Transaction entry, filtering, and categorization \(income, expense, transfer\) with notes and account) Tj
+36 592.4999999999998 Td
+(  links.) Tj
+36 580.9999999999998 Td
+(- Chart of accounts management grouped by account type.) Tj
+36 569.4999999999998 Td
+(- Dashboard KPIs, alerts, and charts using live data with demo fallbacks.) Tj
+36 557.9999999999998 Td
+(- Report generation UI for P&L, Balance Sheet, Cash Flow, and Monthly Summary, plus export actions \(UI) Tj
+36 546.4999999999998 Td
+(  only\).) Tj
+/F2 11.5 Tf
+36 528.9999999999998 Td
+(How it works) Tj
+/F1 9.8 Tf
+36 515.2999999999997 Td
+(React + Vite SPA with routes for Dashboard, Clients, Transactions, Accounts, Reports,) Tj
+36 503.2999999999997 Td
+(Reconciliation, and Settings. Pages use local state and Zod validations for forms. Data is read and) Tj
+36 491.2999999999997 Td
+(written via the Supabase client \(tables used include clients, transactions, categories, accounts,) Tj
+36 479.2999999999997 Td
+(and bank_accounts\). Dashboard metrics are computed in a custom hook and kept fresh with Supabase) Tj
+36 467.2999999999997 Td
+(realtime subscriptions.) Tj
+/F2 11.5 Tf
+36 449.2999999999997 Td
+(How to run \(minimal\)) Tj
+/F1 9.3 Tf
+36 435.59999999999974 Td
+(- Install Node.js and npm \(per README\).) Tj
+36 424.09999999999974 Td
+(- Install dependencies: npm i) Tj
+36 412.59999999999974 Td
+(- Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in your environment.) Tj
+36 401.09999999999974 Td
+(- Start dev server: npm run dev) Tj
+/F1 9.0 Tf
+36 389.59999999999974 Td
+(Source: repo files under src/ and README.md.) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000000321 00000 n 
+0000000396 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2951
+%%EOF
