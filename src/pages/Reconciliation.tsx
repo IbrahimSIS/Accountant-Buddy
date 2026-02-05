@@ -25,7 +25,6 @@ import { Label } from "@/components/ui/label";
 interface Client {
   id: string;
   name: string;
-  currency: string;
 }
 
 interface BankAccount {
@@ -77,7 +76,7 @@ export default function ReconciliationPage() {
   const fetchClients = async () => {
     const { data, error } = await supabase
       .from("clients")
-      .select("id, name, currency")
+       .select("id, name")
       .order("name");
 
     if (!error && data) {

@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+ import { useCurrency } from "@/contexts/CurrencyContext";
 
 interface CategoryBreakdownProps {
   data: Array<{
@@ -10,6 +11,8 @@ interface CategoryBreakdownProps {
 }
 
 export function CategoryBreakdown({ data, title }: CategoryBreakdownProps) {
+   const { formatCurrency } = useCurrency();
+ 
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold">{title}</h3>
@@ -35,7 +38,7 @@ export function CategoryBreakdown({ data, title }: CategoryBreakdownProps) {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "0.5rem",
               }}
-              formatter={(value: number) => [`JOD ${value.toLocaleString()}`, ""]}
+               formatter={(value: number) => [formatCurrency(value), ""]}
             />
             <Legend
               verticalAlign="bottom"

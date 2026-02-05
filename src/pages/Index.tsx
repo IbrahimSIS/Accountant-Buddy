@@ -8,6 +8,7 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { CategoryBreakdown } from "@/components/dashboard/CategoryBreakdown";
 import { Button } from "@/components/ui/button";
 import { useDashboardData } from "@/hooks/useDashboardData";
+ import { useCurrency } from "@/contexts/CurrencyContext";
 import {
   TrendingUp,
   TrendingDown,
@@ -44,6 +45,7 @@ export default function Index() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const dashboardData = useDashboardData();
+   const { formatCurrency, currency } = useCurrency();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -86,10 +88,6 @@ export default function Index() {
     ? dashboardData.expenseCategories 
     : demoExpenseCategories;
 
-  const formatCurrency = (amount: number) => {
-    return `JOD ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  };
-
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -118,7 +116,7 @@ export default function Index() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title="Total Income"
-            value={hasRealData ? formatCurrency(dashboardData.totalIncome) : "JOD 67,000"}
+             value={hasRealData ? formatCurrency(dashboardData.totalIncome) : `${currency} 67,000`}
             subtitle="This month"
             icon={TrendingUp}
             trend={hasRealData && dashboardData.incomeTrend !== 0 ? { 
@@ -129,7 +127,7 @@ export default function Index() {
           />
           <KPICard
             title="Total Expenses"
-            value={hasRealData ? formatCurrency(dashboardData.totalExpenses) : "JOD 45,000"}
+             value={hasRealData ? formatCurrency(dashboardData.totalExpenses) : `${currency} 45,000`}
             subtitle="This month"
             icon={TrendingDown}
             trend={hasRealData && dashboardData.expenseTrend !== 0 ? { 
@@ -140,7 +138,7 @@ export default function Index() {
           />
           <KPICard
             title="Net Profit"
-            value={hasRealData ? formatCurrency(dashboardData.netProfit) : "JOD 22,000"}
+             value={hasRealData ? formatCurrency(dashboardData.netProfit) : `${currency} 22,000`}
             subtitle="This month"
             icon={PiggyBank}
             trend={hasRealData && dashboardData.profitTrend !== 0 ? { 
@@ -151,7 +149,7 @@ export default function Index() {
           />
           <KPICard
             title="Cash Balance"
-            value={hasRealData ? formatCurrency(dashboardData.cashBalance) : "JOD 156,400"}
+             value={hasRealData ? formatCurrency(dashboardData.cashBalance) : `${currency} 156,400`}
             subtitle="All accounts"
             icon={Wallet}
             variant="balance"

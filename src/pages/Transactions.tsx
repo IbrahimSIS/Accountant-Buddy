@@ -50,6 +50,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { transactionSchema, TransactionFormData } from "@/lib/validations";
 import { z } from "zod";
+ import { useCurrency } from "@/contexts/CurrencyContext";
 
 interface Transaction {
   id: string;
@@ -67,7 +68,6 @@ interface Transaction {
 interface Client {
   id: string;
   name: string;
-  currency: string;
 }
 
 interface Category {
@@ -98,6 +98,7 @@ export default function TransactionsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+   const { formatCurrency } = useCurrency();
 
   const [formData, setFormData] = useState({
     date: new Date(),
@@ -150,7 +151,7 @@ export default function TransactionsPage() {
   const fetchClients = async () => {
     const { data, error } = await supabase
       .from("clients")
-      .select("id, name, currency")
+       .select("id, name")
       .order("name");
 
     if (!error && data) {
@@ -575,13 +576,13 @@ export default function TransactionsPage() {
             <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Total Income</p>
               <p className="text-2xl font-bold text-accent">
-                {selectedClientData?.currency} {totalIncome.toLocaleString()}
+                 {formatCurrency(totalIncome)}
               </p>
             </div>
             <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Total Expenses</p>
               <p className="text-2xl font-bold text-destructive">
-                {selectedClientData?.currency} {totalExpenses.toLocaleString()}
+                 {formatCurrency(totalExpenses)}
               </p>
             </div>
             <div className="rounded-lg border bg-card p-4">
@@ -590,7 +591,7 @@ export default function TransactionsPage() {
                 "text-2xl font-bold",
                 totalIncome - totalExpenses >= 0 ? "text-success" : "text-destructive"
               )}>
-                {selectedClientData?.currency} {(totalIncome - totalExpenses).toLocaleString()}
+                 {formatCurrency(totalIncome - totalExpenses)}
               </p>
             </div>
           </div>
@@ -684,7 +685,7 @@ export default function TransactionsPage() {
                         transaction.type === "expense" && "text-destructive"
                       )}>
                         {transaction.type === "income" ? "+" : "-"}
-                        {selectedClientData?.currency} {transaction.amount.toLocaleString()}
+                         {formatCurrency(transaction.amount)}
                       </td>
                       <td>
                         <DropdownMenu>

@@ -26,15 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
-
-const currencies = [
-  { code: "JOD", name: "Jordanian Dinar" },
-  { code: "USD", name: "US Dollar" },
-  { code: "EUR", name: "Euro" },
-  { code: "GBP", name: "British Pound" },
-  { code: "AED", name: "UAE Dirham" },
-  { code: "SAR", name: "Saudi Riyal" },
-];
+ import { useCurrency, currencies } from "@/contexts/CurrencyContext";
 
 export default function SettingsPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -42,6 +34,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
+   const { currency, setCurrency } = useCurrency();
 
   const [profile, setProfile] = useState({
     fullName: "",
@@ -49,7 +42,6 @@ export default function SettingsPage() {
   });
 
   const [preferences, setPreferences] = useState({
-    defaultCurrency: "JOD",
     emailNotifications: true,
     autoCategorizationEnabled: true,
   });
@@ -94,6 +86,15 @@ export default function SettingsPage() {
     }
   };
 
+   const handleCurrencyChange = async (newCurrency: string) => {
+     try {
+       await setCurrency(newCurrency);
+       toast.success(`Currency updated to ${newCurrency}`);
+     } catch (error) {
+       toast.error("Failed to update currency");
+     }
+   };
+ 
   const handleSaveProfile = async () => {
     if (!user) return;
 
@@ -208,10 +209,8 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label htmlFor="currency">Default Currency</Label>
               <Select
-                value={preferences.defaultCurrency}
-                onValueChange={(value) =>
-                  setPreferences({ ...preferences, defaultCurrency: value })
-                }
+                 value={currency}
+                 onValueChange={handleCurrencyChange}
               >
                 <SelectTrigger className="w-[250px]">
                   <SelectValue />
@@ -224,6 +223,9 @@ export default function SettingsPage() {
                   ))}
                 </SelectContent>
               </Select>
+               <p className="text-xs text-muted-foreground">
+                 This currency will be used across the dashboard and all reports
+               </p>
             </div>
             <Separator />
             <div className="flex items-center justify-between">
