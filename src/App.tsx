@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import SafeTooltipProvider from "@/components/SafeTooltipProvider";
+ import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Clients from "./pages/Clients";
@@ -19,23 +20,25 @@ const queryClient = new QueryClient();
 const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
-      <SafeTooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/clients" element={<Clients />} />
-            <Route path="/transactions" element={<Transactions />} />
-            <Route path="/accounts" element={<Accounts />} />
-            <Route path="/reconciliation" element={<Reconciliation />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </SafeTooltipProvider>
+       <CurrencyProvider>
+         <SafeTooltipProvider>
+           <Toaster />
+           <Sonner />
+           <BrowserRouter>
+             <Routes>
+               <Route path="/" element={<Index />} />
+               <Route path="/auth" element={<Auth />} />
+               <Route path="/clients" element={<Clients />} />
+               <Route path="/transactions" element={<Transactions />} />
+               <Route path="/accounts" element={<Accounts />} />
+               <Route path="/reconciliation" element={<Reconciliation />} />
+               <Route path="/reports" element={<Reports />} />
+               <Route path="/settings" element={<Settings />} />
+               <Route path="*" element={<NotFound />} />
+             </Routes>
+           </BrowserRouter>
+         </SafeTooltipProvider>
+       </CurrencyProvider>
     </QueryClientProvider>
   </ErrorBoundary>
 );

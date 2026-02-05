@@ -23,11 +23,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
+ import { useCurrency } from "@/contexts/CurrencyContext";
 
 interface Client {
   id: string;
   name: string;
-  currency: string;
 }
 
 const reportTypes = [
@@ -73,6 +73,7 @@ export default function ReportsPage() {
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [selectedPeriod, setSelectedPeriod] = useState("current-month");
   const navigate = useNavigate();
+   const { formatCurrency } = useCurrency();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -100,7 +101,7 @@ export default function ReportsPage() {
   const fetchClients = async () => {
     const { data, error } = await supabase
       .from("clients")
-      .select("id, name, currency")
+       .select("id, name")
       .order("name");
 
     if (!error && data) {
@@ -238,19 +239,19 @@ export default function ReportsPage() {
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
                 <p className="text-2xl font-bold text-accent">
-                  {selectedClientData?.currency} 0
+                   {formatCurrency(0)}
                 </p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Total Expenses</p>
                 <p className="text-2xl font-bold text-destructive">
-                  {selectedClientData?.currency} 0
+                   {formatCurrency(0)}
                 </p>
               </div>
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Net Income</p>
                 <p className="text-2xl font-bold text-success">
-                  {selectedClientData?.currency} 0
+                   {formatCurrency(0)}
                 </p>
               </div>
               <div className="space-y-1">

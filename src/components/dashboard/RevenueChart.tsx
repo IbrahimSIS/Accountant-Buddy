@@ -1,4 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+ import { useCurrency } from "@/contexts/CurrencyContext";
 
 interface RevenueChartProps {
   data: Array<{
@@ -9,6 +10,8 @@ interface RevenueChartProps {
 }
 
 export function RevenueChart({ data }: RevenueChartProps) {
+   const { formatCurrency } = useCurrency();
+ 
   return (
     <div className="h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -46,7 +49,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
             labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-            formatter={(value: number) => [`JOD ${value.toLocaleString()}`, ""]}
+             formatter={(value: number) => [formatCurrency(value), ""]}
           />
           <Area
             type="monotone"
