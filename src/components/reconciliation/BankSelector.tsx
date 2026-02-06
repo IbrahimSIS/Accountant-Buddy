@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { supabaseClient as supabase } from "@/lib/supabase-client";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Bank {
   id: string;

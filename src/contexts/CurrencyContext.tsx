@@ -1,5 +1,5 @@
  import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
- import { supabaseClient as supabase } from "@/lib/supabase-client";
+ import { supabase } from "@/integrations/supabase/client";
  
  interface CurrencyContextType {
    currency: string;
@@ -23,56 +23,42 @@
    const [currency, setCurrencyState] = useState("JOD");
    const [loading, setLoading] = useState(true);
  
-  useEffect(() => {
-    const fetchCurrency = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data } = await supabase
-            .from("profiles")
-            .select("default_currency")
-            .eq("id", user.id)
-            .maybeSingle();
-          
-          if (data?.default_currency) {
-            setCurrencyState(data.default_currency);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching currency:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCurrency();
-
-    let subscription: { unsubscribe: () => void } | null = null;
-    
-    try {
-      const { data } = supabase.auth.onAuthStateChange((event, session) => {
-        if (session?.user) {
-          supabase
-            .from("profiles")
-            .select("default_currency")
-            .eq("id", session.user.id)
-            .maybeSingle()
-            .then(({ data }) => {
-              if (data?.default_currency) {
-                setCurrencyState(data.default_currency);
-              }
-            });
-        }
-      });
-      subscription = data.subscription;
-    } catch (error) {
-      console.error("Error setting up auth subscription:", error);
-    }
-
-    return () => {
-      subscription?.unsubscribe();
-    };
-  }, []);
+   useEffect(() => {
+     const fetchCurrency = async () => {
+       const { data: { user } } = await supabase.auth.getUser();
+       if (user) {
+         const { data } = await supabase
+           .from("profiles")
+           .select("default_currency")
+           .eq("id", user.id)
+           .maybeSingle();
+         
+         if (data?.default_currency) {
+           setCurrencyState(data.default_currency);
+         }
+       }
+       setLoading(false);
+     };
+ 
+     fetchCurrency();
+ 
+     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+       if (session?.user) {
+         supabase
+           .from("profiles")
+           .select("default_currency")
+           .eq("id", session.user.id)
+           .maybeSingle()
+           .then(({ data }) => {
+             if (data?.default_currency) {
+               setCurrencyState(data.default_currency);
+             }
+           });
+       }
+     });
+ 
+     return () => subscription.unsubscribe();
+   }, []);
  
    const setCurrency = useCallback(async (newCurrency: string) => {
      const { data: { user } } = await supabase.auth.getUser();
