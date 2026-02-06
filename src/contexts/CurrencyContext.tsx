@@ -1,5 +1,5 @@
  import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
- import { supabase } from "@/integrations/supabase/client";
+ import { supabaseClient as supabase } from "@/lib/supabase-client";
  
  interface CurrencyContextType {
    currency: string;
