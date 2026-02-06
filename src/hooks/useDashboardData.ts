@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseClient as supabase } from "@/lib/supabase-client";
 
 interface MonthlyData {
   month: string;
@@ -93,8 +93,13 @@ export function useDashboardData() {
           .lte("date", lastDayOfPrevMonth),
       ]);
 
+      type CategoryRow = {
+        id: string;
+        name: string;
+      };
+
       const transactions = transactionsResult.data || [];
-      const categories = categoriesResult.data || [];
+      const categories = (categoriesResult.data || []) as CategoryRow[];
       const bankAccounts = bankAccountsResult.data || [];
 
       // Current month transactions
@@ -155,11 +160,11 @@ export function useDashboardData() {
       }
 
       // Category breakdown for current month
-      const categoryMap = new Map(categories.map(c => [c.id, c]));
+      const categoryMap = new Map<string, CategoryRow>(categories.map((c) => [c.id, c]));
       
       const expenseCategoryTotals: Record<string, number> = {};
       const incomeCategoryTotals: Record<string, number> = {};
-      
+
       currentMonthTxns.forEach(t => {
         const category = t.category_id ? categoryMap.get(t.category_id) : null;
         const categoryName = category?.name || "Uncategorized";

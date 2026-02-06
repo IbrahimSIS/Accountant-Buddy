@@ -3,7 +3,7 @@ import { LayoutDashboard, Users, Receipt, BookOpen, Scale, FileBarChart, Setting
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseClient as supabase } from "@/lib/supabase-client";
 import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
 const navItems = [{

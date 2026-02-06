@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseClient as supabase } from "@/lib/supabase-client";
 import { cleanIBAN } from "@/lib/iban-validation";
 
 interface ClientMatch {
