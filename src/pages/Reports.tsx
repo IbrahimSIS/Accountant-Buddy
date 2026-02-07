@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -17,13 +17,17 @@ import {
   FileText,
   RefreshCw,
   TrendingUp,
-  TrendingDown,
   Scale,
   Wallet,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
- import { useCurrency } from "@/contexts/CurrencyContext";
+import { useCurrency } from "@/contexts/CurrencyContext";
+import { useReportData, getPeriodLabel } from "@/hooks/useReportData";
+import { ReportSummaryCard } from "@/components/reports/ReportSummaryCard";
+import { ReportTransactionsTable } from "@/components/reports/ReportTransactionsTable";
+import { exportToExcel, exportToPDF } from "@/lib/report-export";
 
 interface Client {
   id: string;
@@ -68,20 +72,21 @@ const periods = [
 
 export default function ReportsPage() {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [selectedPeriod, setSelectedPeriod] = useState("current-month");
+  const [activeReport, setActiveReport] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const navigate = useNavigate();
-   const { formatCurrency } = useCurrency();
+  const { formatCurrency } = useCurrency();
+  const { reportData, loading: reportLoading, fetchReport } = useReportData();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         setSession(session);
-        if (!session) {
-          navigate("/auth");
-        }
+        if (!session) navigate("/auth");
       }
     );
 
@@ -92,7 +97,7 @@ export default function ReportsPage() {
       } else {
         fetchClients();
       }
-      setLoading(false);
+      setPageLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -101,28 +106,104 @@ export default function ReportsPage() {
   const fetchClients = async () => {
     const { data, error } = await supabase
       .from("clients")
-       .select("id, name")
+      .select("id, name")
       .order("name");
 
     if (!error && data) {
       setClients(data);
-      if (data.length > 0 && !selectedClient) {
+      if (data.length > 0) {
         setSelectedClient(data[0].id);
       }
     }
   };
 
-  const handleGenerateReport = (reportId: string) => {
-    toast.success(`Generating ${reportTypes.find(r => r.id === reportId)?.name} report...`);
-  };
+  const handleGenerateReport = useCallback(
+    async (reportId: string) => {
+      if (!selectedClient) {
+        toast.error("Please select a client first");
+        return;
+      }
 
-  const handleExport = (format: "pdf" | "excel") => {
-    toast.success(`Exporting to ${format.toUpperCase()}...`);
-  };
+      setGeneratingId(reportId);
+      const result = await fetchReport(selectedClient, selectedPeriod);
+      setGeneratingId(null);
+
+      if (result) {
+        setActiveReport(reportId);
+        toast.success(
+          `${reportTypes.find((r) => r.id === reportId)?.name} generated — ${result.summary.transactionCount} transactions`
+        );
+      } else {
+        toast.error("Failed to generate report");
+      }
+    },
+    [selectedClient, selectedPeriod, fetchReport]
+  );
+
+  const getExportOptions = useCallback(
+    (reportId?: string) => {
+      const clientName = clients.find((c) => c.id === selectedClient)?.name || "Unknown";
+      const reportTitle = reportTypes.find((r) => r.id === (reportId || activeReport))?.name || "Financial Report";
+      const dateRange = getPeriodLabel(selectedPeriod);
+
+      return { reportTitle, clientName, dateRange, formatCurrency };
+    },
+    [selectedClient, selectedPeriod, activeReport, clients, formatCurrency]
+  );
+
+  const handleExportExcel = useCallback(
+    async (reportId?: string) => {
+      let data = reportData;
+      if (!data) {
+        if (!selectedClient) {
+          toast.error("Please select a client first");
+          return;
+        }
+        data = await fetchReport(selectedClient, selectedPeriod);
+      }
+      if (!data) {
+        toast.error("No data to export");
+        return;
+      }
+
+      try {
+        exportToExcel(data, getExportOptions(reportId));
+        toast.success("Excel file downloaded");
+      } catch {
+        toast.error("Failed to export Excel");
+      }
+    },
+    [reportData, selectedClient, selectedPeriod, fetchReport, getExportOptions]
+  );
+
+  const handleExportPDF = useCallback(
+    async (reportId?: string) => {
+      let data = reportData;
+      if (!data) {
+        if (!selectedClient) {
+          toast.error("Please select a client first");
+          return;
+        }
+        data = await fetchReport(selectedClient, selectedPeriod);
+      }
+      if (!data) {
+        toast.error("No data to export");
+        return;
+      }
+
+      try {
+        exportToPDF(data, getExportOptions(reportId));
+        toast.success("PDF file downloaded");
+      } catch {
+        toast.error("Failed to export PDF");
+      }
+    },
+    [reportData, selectedClient, selectedPeriod, fetchReport, getExportOptions]
+  );
 
   const selectedClientData = clients.find((c) => c.id === selectedClient);
 
-  if (loading) {
+  if (pageLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <RefreshCw className="h-8 w-8 animate-spin text-primary" />
@@ -142,11 +223,19 @@ export default function ReportsPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => handleExport("excel")}>
+            <Button
+              variant="outline"
+              onClick={() => handleExportExcel()}
+              disabled={!reportData || reportLoading}
+            >
               <FileSpreadsheet className="mr-2 h-4 w-4" />
               Export Excel
             </Button>
-            <Button variant="outline" onClick={() => handleExport("pdf")}>
+            <Button
+              variant="outline"
+              onClick={() => handleExportPDF()}
+              disabled={!reportData || reportLoading}
+            >
               <FileText className="mr-2 h-4 w-4" />
               Export PDF
             </Button>
@@ -179,6 +268,11 @@ export default function ReportsPage() {
               ))}
             </SelectContent>
           </Select>
+          {selectedClient && (
+            <p className="text-xs text-muted-foreground ml-1">
+              {getPeriodLabel(selectedPeriod)}
+            </p>
+          )}
         </div>
 
         {/* Report Types */}
@@ -194,71 +288,94 @@ export default function ReportsPage() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {reportTypes.map((report) => (
-              <div
-                key={report.id}
-                className="group rounded-xl border bg-card p-6 transition-all hover:shadow-md"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="rounded-lg bg-primary/10 p-3">
-                    <report.icon className="h-6 w-6 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">{report.name}</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      {report.description}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleGenerateReport(report.id)}
-                      >
-                        Generate
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleExport("pdf")}
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        PDF
-                      </Button>
+            {reportTypes.map((report) => {
+              const isActive = activeReport === report.id;
+              const isGenerating = generatingId === report.id;
+
+              return (
+                <div
+                  key={report.id}
+                  className={`group rounded-xl border bg-card p-6 transition-all hover:shadow-md ${
+                    isActive ? "ring-2 ring-primary/40" : ""
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-lg bg-primary/10 p-3">
+                      <report.icon className="h-6 w-6 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold mb-1">{report.name}</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {report.description}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleGenerateReport(report.id)}
+                          disabled={isGenerating || reportLoading}
+                        >
+                          {isGenerating ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          {isGenerating ? "Generating…" : "Generate"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleExportPDF(report.id)}
+                          disabled={reportLoading}
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          PDF
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {/* Quick Stats */}
-        {selectedClient && (
-          <div className="rounded-xl border bg-card p-6">
-            <h3 className="font-semibold mb-4">Quick Summary - {selectedClientData?.name}</h3>
-            <div className="grid gap-4 sm:grid-cols-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-bold text-accent">
-                   {formatCurrency(0)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Total Expenses</p>
-                <p className="text-2xl font-bold text-destructive">
-                   {formatCurrency(0)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Net Income</p>
-                <p className="text-2xl font-bold text-success">
-                   {formatCurrency(0)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Transactions</p>
-                <p className="text-2xl font-bold">0</p>
+        {/* Quick Summary — live data */}
+        {selectedClient && reportData && (
+          <ReportSummaryCard
+            summary={reportData.summary}
+            clientName={selectedClientData?.name || ""}
+            formatCurrency={formatCurrency}
+          />
+        )}
+
+        {/* Transactions Table */}
+        {selectedClient && reportData && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">
+                Transactions ({reportData.transactions.length})
+              </h3>
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={() => handleExportExcel()}>
+                  <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />
+                  Excel
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => handleExportPDF()}>
+                  <FileText className="mr-1 h-3.5 w-3.5" />
+                  PDF
+                </Button>
               </div>
             </div>
+            <ReportTransactionsTable
+              transactions={reportData.transactions}
+              formatCurrency={formatCurrency}
+            />
+          </div>
+        )}
+
+        {/* Loading state */}
+        {reportLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
+            <span className="text-muted-foreground">Fetching transactions…</span>
           </div>
         )}
       </div>
