@@ -534,6 +534,64 @@ export type Database = {
           },
         ]
       }
+      journal_entries: {
+        Row: {
+          id: string
+          transaction_id: string
+          account_id: string
+          debit: number
+          credit: number
+          date: string
+          notes: string | null
+          client_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          transaction_id: string
+          account_id: string
+          debit?: number
+          credit?: number
+          date: string
+          notes?: string | null
+          client_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          transaction_id?: string
+          account_id?: string
+          debit?: number
+          credit?: number
+          date?: string
+          notes?: string | null
+          client_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "journal_entries_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journal_entries_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journal_entries_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string

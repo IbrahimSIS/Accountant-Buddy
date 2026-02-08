@@ -24,7 +24,7 @@ import {
 import { toast } from "sonner";
 import { Session } from "@supabase/supabase-js";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { useReportData, getPeriodLabel } from "@/hooks/useReportData";
+import { useReportData, getPeriodLabel, type ReportType } from "@/hooks/useReportData";
 import { ReportSummaryCard } from "@/components/reports/ReportSummaryCard";
 import { ReportTransactionsTable } from "@/components/reports/ReportTransactionsTable";
 import { exportToExcel, exportToPDF } from "@/lib/report-export";
@@ -125,14 +125,21 @@ export default function ReportsPage() {
       }
 
       setGeneratingId(reportId);
-      const result = await fetchReport(selectedClient, selectedPeriod);
+      const result = await fetchReport(
+        selectedClient,
+        selectedPeriod,
+        reportId as ReportType
+      );
       setGeneratingId(null);
 
       if (result) {
         setActiveReport(reportId);
-        toast.success(
-          `${reportTypes.find((r) => r.id === reportId)?.name} generated — ${result.summary.transactionCount} transactions`
-        );
+        const reportName = reportTypes.find((r) => r.id === reportId)?.name;
+        const countLabel =
+          reportId === "balance"
+            ? `${result.summary.assetAccounts.length + result.summary.liabilityAccounts.length + result.summary.equityAccounts.length} accounts`
+            : `${result.summary.transactionCount} transactions`;
+        toast.success(`${reportName} generated — ${countLabel}`);
       } else {
         toast.error("Failed to generate report");
       }
@@ -153,13 +160,14 @@ export default function ReportsPage() {
 
   const handleExportExcel = useCallback(
     async (reportId?: string) => {
+      const rid = reportId || activeReport || "pnl";
       let data = reportData;
-      if (!data) {
+      if (!data || (reportData && reportData.summary.reportType !== rid)) {
         if (!selectedClient) {
           toast.error("Please select a client first");
           return;
         }
-        data = await fetchReport(selectedClient, selectedPeriod);
+        data = await fetchReport(selectedClient, selectedPeriod, rid as ReportType);
       }
       if (!data) {
         toast.error("No data to export");
@@ -173,18 +181,19 @@ export default function ReportsPage() {
         toast.error("Failed to export Excel");
       }
     },
-    [reportData, selectedClient, selectedPeriod, fetchReport, getExportOptions]
+    [reportData, selectedClient, selectedPeriod, activeReport, fetchReport, getExportOptions]
   );
 
   const handleExportPDF = useCallback(
     async (reportId?: string) => {
+      const rid = reportId || activeReport || "pnl";
       let data = reportData;
-      if (!data) {
+      if (!data || (reportData && reportData.summary.reportType !== rid)) {
         if (!selectedClient) {
           toast.error("Please select a client first");
           return;
         }
-        data = await fetchReport(selectedClient, selectedPeriod);
+        data = await fetchReport(selectedClient, selectedPeriod, rid as ReportType);
       }
       if (!data) {
         toast.error("No data to export");
@@ -198,7 +207,7 @@ export default function ReportsPage() {
         toast.error("Failed to export PDF");
       }
     },
-    [reportData, selectedClient, selectedPeriod, fetchReport, getExportOptions]
+    [reportData, selectedClient, selectedPeriod, activeReport, fetchReport, getExportOptions]
   );
 
   const selectedClientData = clients.find((c) => c.id === selectedClient);
@@ -351,7 +360,9 @@ export default function ReportsPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">
-                Transactions ({reportData.transactions.length})
+                {reportData.summary.reportType === "balance"
+                  ? "Account Details"
+                  : `Transactions (${reportData.transactions.length})`}
               </h3>
               <div className="flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => handleExportExcel()}>
@@ -367,6 +378,7 @@ export default function ReportsPage() {
             <ReportTransactionsTable
               transactions={reportData.transactions}
               formatCurrency={formatCurrency}
+              reportType={reportData.summary.reportType}
             />
           </div>
         )}

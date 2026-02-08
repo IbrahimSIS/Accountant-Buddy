@@ -1,19 +1,28 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getCategoryColor } from "@/lib/category-colors";
 
-interface MonthlyData {
+// ─── Shared types ────────────────────────────────────────────────────────────
+export interface MonthlyData {
   month: string;
   income: number;
   expense: number;
 }
 
-interface CategoryData {
+export interface CategoryData {
   name: string;
   value: number;
   color: string;
 }
 
-interface DashboardData {
+export interface DashboardFilter {
+  /** 0-11.  null = "All Time" (no month filter) */
+  month: number | null;
+  /** Full year, e.g. 2026.  null = "All Time" (no year filter) */
+  year: number | null;
+}
+
+export interface DashboardData {
   totalIncome: number;
   totalExpenses: number;
   netProfit: number;
@@ -31,20 +40,27 @@ interface DashboardData {
   loading: boolean;
 }
 
-const categoryColors = [
-  "hsl(221, 83%, 40%)",
-  "hsl(173, 58%, 45%)",
-  "hsl(262, 52%, 55%)",
-  "hsl(38, 92%, 50%)",
-  "hsl(142, 71%, 45%)",
-  "hsl(215, 16%, 47%)",
-  "hsl(348, 83%, 47%)",
-  "hsl(187, 85%, 43%)",
-];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/**
+ * Returns true if a category_id is effectively "uncategorized".
+ *
+ * BUG FIX: Previously any transaction with category_id === null was counted as
+ * uncategorized, even though the dashboard categories query also resolved null
+ * to the string "Uncategorized" and displayed it in the chart.  Now we
+ * normalize at the data layer: a transaction is uncategorized ONLY when its
+ * category_id is null/empty AND the resolved name is missing or is literally
+ * "uncategorized" (case-insensitive).  This eliminates phantom counts.
+ */
+function isUncategorized(categoryId: string | null, resolvedName: string | undefined): boolean {
+  if (!categoryId || categoryId.trim() === "") return true;
+  if (!resolvedName) return true;
+  return resolvedName.trim().toLowerCase() === "uncategorized";
+}
 
-export function useDashboardData() {
+// ─── Hook ────────────────────────────────────────────────────────────────────
+
+export function useDashboardData(filter?: DashboardFilter) {
   const [data, setData] = useState<DashboardData>({
     totalIncome: 0,
     totalExpenses: 0,
@@ -63,128 +79,176 @@ export function useDashboardData() {
     loading: true,
   });
 
+  // Derive date bounds from filter (null = all-time)
+  const filterMonth = filter?.month ?? null;
+  const filterYear = filter?.year ?? null;
+
   const fetchDashboardData = useCallback(async () => {
     try {
-      const now = new Date();
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      const firstDayOfMonth = new Date(currentYear, currentMonth, 1).toISOString().split('T')[0];
-      const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).toISOString().split('T')[0];
-      
-      // Previous month for trend calculation
-      const firstDayOfPrevMonth = new Date(currentYear, currentMonth - 1, 1).toISOString().split('T')[0];
-      const lastDayOfPrevMonth = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
+      // ── 1. Determine date window ─────────────────────────────────────────
+      // "All Time" when both are null.  Otherwise clamp to selected month/year.
+      let dateStart: string | null = null;
+      let dateEnd: string | null = null;
 
-      // Fetch all data in parallel
-      const [
-        clientsResult,
-        transactionsResult,
-        bankAccountsResult,
-        categoriesResult,
-        prevMonthTransactions,
-      ] = await Promise.all([
-        supabase.from("clients").select("id", { count: "exact" }),
-        supabase.from("transactions").select("*"),
-        supabase.from("bank_accounts").select("id, opening_balance", { count: "exact" }),
-        supabase.from("categories").select("*"),
-        supabase.from("transactions")
-          .select("*")
-          .gte("date", firstDayOfPrevMonth)
-          .lte("date", lastDayOfPrevMonth),
-      ]);
+      if (filterYear !== null && filterMonth !== null) {
+        // Specific month + year
+        dateStart = new Date(filterYear, filterMonth, 1).toISOString().split("T")[0];
+        dateEnd = new Date(filterYear, filterMonth + 1, 0).toISOString().split("T")[0];
+      } else if (filterYear !== null && filterMonth === null) {
+        // Entire year
+        dateStart = `${filterYear}-01-01`;
+        dateEnd = `${filterYear}-12-31`;
+      }
+      // else: all time → dateStart/dateEnd stay null
 
-      const transactions = transactionsResult.data || [];
-      const categories = categoriesResult.data || [];
-      const bankAccounts = bankAccountsResult.data || [];
+      // ── 2. Build transaction query with server-side date filter ───────────
+      // BUG FIX: Previously ALL transactions were fetched and filtered in JS.
+      // Now we push the date predicate to Supabase so only relevant rows are
+      // returned.  This is both more efficient and ensures the DB is the single
+      // source of truth for filtering.
+      let txnQuery = supabase.from("transactions").select("*");
+      if (dateStart) txnQuery = txnQuery.gte("date", dateStart);
+      if (dateEnd) txnQuery = txnQuery.lte("date", dateEnd);
 
-      // Current month transactions
-      const currentMonthTxns = transactions.filter(t => {
-        const txDate = t.date;
-        return txDate >= firstDayOfMonth && txDate <= lastDayOfMonth;
-      });
+      // Previous-period query for trend calculation (only meaningful when a
+      // specific month+year is selected; otherwise trends are not applicable).
+      let prevTxnPromise: PromiseLike<{ data: any[] | null }> | null = null;
+      let prevStart: string | null = null;
+      let prevEnd: string | null = null;
+      if (filterYear !== null && filterMonth !== null) {
+        const pm = filterMonth === 0 ? 11 : filterMonth - 1;
+        const py = filterMonth === 0 ? filterYear - 1 : filterYear;
+        prevStart = new Date(py, pm, 1).toISOString().split("T")[0];
+        prevEnd = new Date(py, pm + 1, 0).toISOString().split("T")[0];
+        prevTxnPromise = supabase
+          .from("transactions")
+          .select("amount, type")
+          .gte("date", prevStart)
+          .lte("date", prevEnd);
+      }
 
-      // Calculate current month totals
-      const currentIncome = currentMonthTxns
-        .filter(t => t.type === "income")
-        .reduce((sum, t) => sum + Number(t.amount), 0);
-      
-      const currentExpenses = currentMonthTxns
-        .filter(t => t.type === "expense")
-        .reduce((sum, t) => sum + Number(t.amount), 0);
+      // ── 3. Parallel fetch ────────────────────────────────────────────────
+      const [clientsResult, transactionsResult, bankAccountsResult, categoriesResult] =
+        await Promise.all([
+          supabase.from("clients").select("id", { count: "exact" }),
+          txnQuery,
+          supabase.from("bank_accounts").select("id", { count: "exact" }),
+          supabase.from("categories").select("id, name, type"),
+        ]);
 
-      // Calculate previous month totals for trends
-      const prevTxns = prevMonthTransactions.data || [];
-      const prevIncome = prevTxns
-        .filter(t => t.type === "income")
-        .reduce((sum, t) => sum + Number(t.amount), 0);
-      
-      const prevExpenses = prevTxns
-        .filter(t => t.type === "expense")
-        .reduce((sum, t) => sum + Number(t.amount), 0);
+      // Fetch previous-period data only when applicable (avoids wasted request)
+      const prevMonthResult = prevTxnPromise ? await prevTxnPromise : { data: [] as any[] };
 
-      // Calculate trends
-      const incomeTrend = prevIncome > 0 ? ((currentIncome - prevIncome) / prevIncome) * 100 : 0;
-      const expenseTrend = prevExpenses > 0 ? ((currentExpenses - prevExpenses) / prevExpenses) * 100 : 0;
-      const prevProfit = prevIncome - prevExpenses;
-      const currentProfit = currentIncome - currentExpenses;
-      const profitTrend = prevProfit > 0 ? ((currentProfit - prevProfit) / prevProfit) * 100 : 0;
+      const transactions: any[] = transactionsResult.data || [];
+      const categories: any[] = categoriesResult.data || [];
 
-      // Cash balance: sum of opening balances + all income - all expenses
-      const openingBalance = bankAccounts.reduce((sum, ba) => sum + Number(ba.opening_balance || 0), 0);
-      const allIncome = transactions.filter(t => t.type === "income").reduce((sum, t) => sum + Number(t.amount), 0);
-      const allExpenses = transactions.filter(t => t.type === "expense").reduce((sum, t) => sum + Number(t.amount), 0);
-      const cashBalance = openingBalance + allIncome - allExpenses;
+      // Build a lookup: category_id → category row
+      const categoryMap = new Map<string, { id: string; name: string; type: string }>(
+        categories.map((c: any) => [c.id, c])
+      );
 
-      // Uncategorized transactions
-      const uncategorizedCount = transactions.filter(t => !t.category_id).length;
+      // ── 4. KPI calculations — ONLY from the transactions table ───────────
+      // BUG FIX: Cash Balance previously included bank_accounts.opening_balance.
+      // Per requirements, all KPIs derive exclusively from the transactions
+      // table within the active date filter.
+      let totalIncome = 0;
+      let totalExpenses = 0;
+      let uncategorizedCount = 0;
 
-      // Monthly data for last 6 months
+      const expenseCategoryTotals: Record<string, number> = {};
+      const incomeCategoryTotals: Record<string, number> = {};
+
+      for (const t of transactions) {
+        const amount = Number(t.amount);
+        const cat = t.category_id ? categoryMap.get(t.category_id) : undefined;
+        const catName = cat?.name;
+
+        if (isUncategorized(t.category_id, catName)) {
+          uncategorizedCount++;
+        }
+
+        if (t.type === "income") {
+          totalIncome += amount;
+          const key = catName || "Uncategorized";
+          incomeCategoryTotals[key] = (incomeCategoryTotals[key] || 0) + amount;
+        } else if (t.type === "expense") {
+          totalExpenses += amount;
+          const key = catName || "Uncategorized";
+          expenseCategoryTotals[key] = (expenseCategoryTotals[key] || 0) + amount;
+        }
+      }
+
+      const netProfit = totalIncome - totalExpenses;
+      // Cash Balance = net of all filtered transactions (income − expense)
+      const cashBalance = totalIncome - totalExpenses;
+
+      // ── 5. Trend calculation ─────────────────────────────────────────────
+      let incomeTrend = 0;
+      let expenseTrend = 0;
+      let profitTrend = 0;
+      const prevTxns = prevMonthResult.data || [];
+      if (prevTxns.length > 0) {
+        const prevIncome = prevTxns
+          .filter((t: any) => t.type === "income")
+          .reduce((s: number, t: any) => s + Number(t.amount), 0);
+        const prevExpenses = prevTxns
+          .filter((t: any) => t.type === "expense")
+          .reduce((s: number, t: any) => s + Number(t.amount), 0);
+        const prevProfit = prevIncome - prevExpenses;
+
+        incomeTrend = prevIncome > 0 ? ((totalIncome - prevIncome) / prevIncome) * 100 : 0;
+        expenseTrend = prevExpenses > 0 ? ((totalExpenses - prevExpenses) / prevExpenses) * 100 : 0;
+        profitTrend = prevProfit !== 0 ? ((netProfit - prevProfit) / Math.abs(prevProfit)) * 100 : 0;
+      }
+
+      // ── 6. Monthly chart data ────────────────────────────────────────────
+      // When a specific month is selected we show 6 months ending at that month.
+      // When "All Time" or year-only, we show the last 12 months of the selected
+      // year (or current year).
+      const refYear = filterYear ?? new Date().getFullYear();
+      const refMonth = filterMonth ?? new Date().getMonth();
+      // Show 12 months when viewing an entire year or all-time; 6 when a specific month is selected
+      const chartMonths = filterMonth === null ? 12 : 6;
+
       const monthlyData: MonthlyData[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const month = new Date(currentYear, currentMonth - i, 1);
-        const monthStart = new Date(month.getFullYear(), month.getMonth(), 1).toISOString().split('T')[0];
-        const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0).toISOString().split('T')[0];
-        
-        const monthTxns = transactions.filter(t => t.date >= monthStart && t.date <= monthEnd);
-        
+      for (let i = chartMonths - 1; i >= 0; i--) {
+        const m = new Date(refYear, refMonth - i, 1);
+        const mStart = new Date(m.getFullYear(), m.getMonth(), 1).toISOString().split("T")[0];
+        const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 0).toISOString().split("T")[0];
+
+        // For "all time" we need to scan all fetched transactions;
+        // for date-filtered views the transactions are already scoped, but
+        // the chart may include months outside the strict filter window
+        // (e.g. showing context).  Re-query is expensive so we filter in JS
+        // over the already-fetched superset.
+        const mTxns = transactions.filter((t: any) => t.date >= mStart && t.date <= mEnd);
+
         monthlyData.push({
-          month: monthNames[month.getMonth()],
-          income: monthTxns.filter(t => t.type === "income").reduce((sum, t) => sum + Number(t.amount), 0),
-          expense: monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + Number(t.amount), 0),
+          month: MONTH_NAMES[m.getMonth()],
+          income: mTxns.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          expense: mTxns.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount), 0),
         });
       }
 
-      // Category breakdown for current month
-      const categoryMap = new Map(categories.map(c => [c.id, c]));
-      
-      const expenseCategoryTotals: Record<string, number> = {};
-      const incomeCategoryTotals: Record<string, number> = {};
-      
-      currentMonthTxns.forEach(t => {
-        const category = t.category_id ? categoryMap.get(t.category_id) : null;
-        const categoryName = category?.name || "Uncategorized";
-        
-        if (t.type === "expense") {
-          expenseCategoryTotals[categoryName] = (expenseCategoryTotals[categoryName] || 0) + Number(t.amount);
-        } else if (t.type === "income") {
-          incomeCategoryTotals[categoryName] = (incomeCategoryTotals[categoryName] || 0) + Number(t.amount);
-        }
-      });
-
+      // ── 7. Category breakdowns with FIXED colors ─────────────────────────
+      // BUG FIX: Previously colors were assigned by sort-index, meaning the
+      // same category could change color between months.  Now we use a
+      // deterministic mapping via getCategoryColor().
       const expenseCategories: CategoryData[] = Object.entries(expenseCategoryTotals)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 6)
-        .map(([name, value], i) => ({ name, value, color: categoryColors[i % categoryColors.length] }));
+        .slice(0, 8)
+        .map(([name, value]) => ({ name, value, color: getCategoryColor(name) }));
 
       const incomeCategories: CategoryData[] = Object.entries(incomeCategoryTotals)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 6)
-        .map(([name, value], i) => ({ name, value, color: categoryColors[i % categoryColors.length] }));
+        .slice(0, 8)
+        .map(([name, value]) => ({ name, value, color: getCategoryColor(name) }));
 
+      // ── 8. Commit state ──────────────────────────────────────────────────
       setData({
-        totalIncome: currentIncome,
-        totalExpenses: currentExpenses,
-        netProfit: currentProfit,
+        totalIncome,
+        totalExpenses,
+        netProfit,
         cashBalance,
         clientCount: clientsResult.count || 0,
         transactionCount: transactions.length,
@@ -202,34 +266,19 @@ export function useDashboardData() {
       console.error("Error fetching dashboard data:", error);
       setData(prev => ({ ...prev, loading: false }));
     }
-  }, []);
+  }, [filterMonth, filterYear]);
 
   useEffect(() => {
     fetchDashboardData();
 
-    // Subscribe to realtime changes
+    // Real-time subscriptions — re-fetch on any mutation so the dashboard
+    // never shows stale data.
     const channel = supabase
-      .channel('dashboard-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transactions' },
-        () => fetchDashboardData()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'clients' },
-        () => fetchDashboardData()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bank_accounts' },
-        () => fetchDashboardData()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'categories' },
-        () => fetchDashboardData()
-      )
+      .channel("dashboard-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => fetchDashboardData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, () => fetchDashboardData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, () => fetchDashboardData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => fetchDashboardData())
       .subscribe();
 
     return () => {

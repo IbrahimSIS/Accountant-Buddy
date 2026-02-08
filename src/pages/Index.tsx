@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -7,8 +7,15 @@ import { AlertCard } from "@/components/dashboard/AlertCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { CategoryBreakdown } from "@/components/dashboard/CategoryBreakdown";
 import { Button } from "@/components/ui/button";
-import { useDashboardData } from "@/hooks/useDashboardData";
- import { useCurrency } from "@/contexts/CurrencyContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useDashboardData, DashboardFilter } from "@/hooks/useDashboardData";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import {
   TrendingUp,
   TrendingDown,
@@ -19,37 +26,64 @@ import {
   FileText,
   RefreshCw,
   Banknote,
+  CalendarDays,
 } from "lucide-react";
 import { Session } from "@supabase/supabase-js";
 
-// Demo data for when no real data exists
-const demoMonthlyData = [
-  { month: "Jul", income: 45000, expense: 32000 },
-  { month: "Aug", income: 52000, expense: 38000 },
-  { month: "Sep", income: 48000, expense: 35000 },
-  { month: "Oct", income: 61000, expense: 42000 },
-  { month: "Nov", income: 55000, expense: 39000 },
-  { month: "Dec", income: 67000, expense: 45000 },
+// ─── Constants for the date filter ──────────────────────────────────────────
+const MONTH_OPTIONS = [
+  { value: "0", label: "January" },
+  { value: "1", label: "February" },
+  { value: "2", label: "March" },
+  { value: "3", label: "April" },
+  { value: "4", label: "May" },
+  { value: "5", label: "June" },
+  { value: "6", label: "July" },
+  { value: "7", label: "August" },
+  { value: "8", label: "September" },
+  { value: "9", label: "October" },
+  { value: "10", label: "November" },
+  { value: "11", label: "December" },
 ];
 
-const demoExpenseCategories = [
-  { name: "Salaries", value: 25000, color: "hsl(221, 83%, 40%)" },
-  { name: "Rent", value: 8000, color: "hsl(173, 58%, 45%)" },
-  { name: "Utilities", value: 3500, color: "hsl(262, 52%, 55%)" },
-  { name: "Marketing", value: 5500, color: "hsl(38, 92%, 50%)" },
-  { name: "Other", value: 3000, color: "hsl(215, 16%, 47%)" },
-];
+/** Generate year options: current year and 4 years back */
+function getYearOptions(): { value: string; label: string }[] {
+  const current = new Date().getFullYear();
+  const opts: { value: string; label: string }[] = [];
+  for (let y = current; y >= current - 4; y--) {
+    opts.push({ value: String(y), label: String(y) });
+  }
+  return opts;
+}
+const YEAR_OPTIONS = getYearOptions();
 
 export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  const dashboardData = useDashboardData();
-   const { formatCurrency, currency } = useCurrency();
+  const { formatCurrency } = useCurrency();
+
+  // ─── Date filter state ──────────────────────────────────────────────────
+  // Default: current month + current year.  "all" sentinel = null in filter.
+  const now = new Date();
+  const [filterMonth, setFilterMonth] = useState<string>(String(now.getMonth()));
+  const [filterYear, setFilterYear] = useState<string>(String(now.getFullYear()));
+
+  // Build the filter object that useDashboardData consumes.
+  // Memoized so it only changes when the user actually picks a new value.
+  const dashboardFilter = useMemo<DashboardFilter>(() => ({
+    month: filterMonth === "all" ? null : Number(filterMonth),
+    year: filterYear === "all" ? null : Number(filterYear),
+  }), [filterMonth, filterYear]);
+
+  // BUG FIX: Previously the hook accepted no parameters and hardcoded
+  // "current month".  Now it reacts to the filter so all KPI cards,
+  // charts, and breakdowns update when the user changes the date.
+  const dashboardData = useDashboardData(dashboardFilter);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         setSession(session);
         setLoading(false);
       }
@@ -81,29 +115,67 @@ export default function Index() {
     return null;
   }
 
-  // Use demo data if no real data exists
-  const hasRealData = dashboardData.transactionCount > 0;
-  const monthlyData = hasRealData ? dashboardData.monthlyData : demoMonthlyData;
-  const expenseCategories = hasRealData && dashboardData.expenseCategories.length > 0 
-    ? dashboardData.expenseCategories 
-    : demoExpenseCategories;
+  // Derive a human-readable label for the active filter period
+  const periodLabel =
+    filterMonth === "all" && filterYear === "all"
+      ? "All Time"
+      : filterMonth === "all"
+        ? filterYear
+        : filterYear === "all"
+          ? MONTH_OPTIONS[Number(filterMonth)]?.label ?? ""
+          : `${MONTH_OPTIONS[Number(filterMonth)]?.label ?? ""} ${filterYear}`;
+
+  // BUG FIX: Previously demo/mock data was shown when transactionCount === 0.
+  // This violated the "no mock values" rule and displayed fabricated financial
+  // figures.  Now we always show real data — zeros when there are no transactions.
+  const { monthlyData, expenseCategories } = dashboardData;
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
+        {/* Header + Date Filter */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
               Overview of all clients' financial data
-              {!hasRealData && " (Demo data shown)"}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Date filter: month selector */}
+            <div className="flex items-center gap-1.5">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="w-[130px] h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {MONTH_OPTIONS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Date filter: year selector */}
+            <Select value={filterYear} onValueChange={setFilterYear}>
+              <SelectTrigger className="w-[100px] h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Years</SelectItem>
+                {YEAR_OPTIONS.map((y) => (
+                  <SelectItem key={y.value} value={y.value}>
+                    {y.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" size="sm" onClick={() => navigate("/reports")}>
               <FileText className="mr-2 h-4 w-4" />
-              Generate Report
+              Reports
             </Button>
             <Button size="sm" onClick={() => navigate("/clients")}>
               <Plus className="mr-2 h-4 w-4" />
@@ -112,45 +184,45 @@ export default function Index() {
           </div>
         </div>
 
-        {/* KPI Cards */}
+        {/* KPI Cards — values come ONLY from the transactions table via useDashboardData */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title="Total Income"
-             value={hasRealData ? formatCurrency(dashboardData.totalIncome) : `${currency} 67,000`}
-            subtitle="This month"
+            value={formatCurrency(dashboardData.totalIncome)}
+            subtitle={periodLabel}
             icon={TrendingUp}
-            trend={hasRealData && dashboardData.incomeTrend !== 0 ? { 
-              value: Math.round(dashboardData.incomeTrend * 10) / 10, 
-              label: "vs last month" 
+            trend={dashboardData.incomeTrend !== 0 ? {
+              value: Math.round(dashboardData.incomeTrend * 10) / 10,
+              label: "vs prior period",
             } : undefined}
             variant="income"
           />
           <KPICard
             title="Total Expenses"
-             value={hasRealData ? formatCurrency(dashboardData.totalExpenses) : `${currency} 45,000`}
-            subtitle="This month"
+            value={formatCurrency(dashboardData.totalExpenses)}
+            subtitle={periodLabel}
             icon={TrendingDown}
-            trend={hasRealData && dashboardData.expenseTrend !== 0 ? { 
-              value: Math.round(dashboardData.expenseTrend * 10) / 10, 
-              label: "vs last month" 
+            trend={dashboardData.expenseTrend !== 0 ? {
+              value: Math.round(dashboardData.expenseTrend * 10) / 10,
+              label: "vs prior period",
             } : undefined}
             variant="expense"
           />
           <KPICard
             title="Net Profit"
-             value={hasRealData ? formatCurrency(dashboardData.netProfit) : `${currency} 22,000`}
-            subtitle="This month"
+            value={formatCurrency(dashboardData.netProfit)}
+            subtitle={periodLabel}
             icon={PiggyBank}
-            trend={hasRealData && dashboardData.profitTrend !== 0 ? { 
-              value: Math.round(dashboardData.profitTrend * 10) / 10, 
-              label: "vs last month" 
+            trend={dashboardData.profitTrend !== 0 ? {
+              value: Math.round(dashboardData.profitTrend * 10) / 10,
+              label: "vs prior period",
             } : undefined}
             variant="profit"
           />
           <KPICard
             title="Cash Balance"
-             value={hasRealData ? formatCurrency(dashboardData.cashBalance) : `${currency} 156,400`}
-            subtitle="All accounts"
+            value={formatCurrency(dashboardData.cashBalance)}
+            subtitle={periodLabel}
             icon={Wallet}
             variant="balance"
           />
@@ -161,7 +233,7 @@ export default function Index() {
           {dashboardData.uncategorizedCount > 0 ? (
             <AlertCard
               type="warning"
-              title={`${dashboardData.uncategorizedCount} Uncategorized Transaction${dashboardData.uncategorizedCount > 1 ? 's' : ''}`}
+              title={`${dashboardData.uncategorizedCount} Uncategorized Transaction${dashboardData.uncategorizedCount > 1 ? "s" : ""}`}
               description="Review and categorize transactions for accurate reporting."
               action={{ label: "Review now", onClick: () => navigate("/transactions") }}
             />
@@ -182,7 +254,7 @@ export default function Index() {
           ) : (
             <AlertCard
               type="success"
-              title={`${dashboardData.clientCount} Active Client${dashboardData.clientCount > 1 ? 's' : ''}`}
+              title={`${dashboardData.clientCount} Active Client${dashboardData.clientCount > 1 ? "s" : ""}`}
               description="Manage your clients and their financial data."
               action={{ label: "View Clients", onClick: () => navigate("/clients") }}
             />
@@ -252,8 +324,8 @@ export default function Index() {
               </div>
               <div>
                 <p className="text-2xl font-bold">
-                  {dashboardData.totalIncome > 0 
-                    ? Math.round((dashboardData.netProfit / dashboardData.totalIncome) * 100) 
+                  {dashboardData.totalIncome > 0
+                    ? Math.round((dashboardData.netProfit / dashboardData.totalIncome) * 100)
                     : 0}%
                 </p>
                 <p className="text-sm text-muted-foreground">Profit Margin</p>

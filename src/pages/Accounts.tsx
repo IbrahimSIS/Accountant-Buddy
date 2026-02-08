@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -51,6 +51,10 @@ import { Session } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 import { accountSchema } from "@/lib/validations";
 import { z } from "zod";
+import { CHART_OF_ACCOUNTS_SEED } from "@/data/chartOfAccountsSeed";
+import { Database as DatabaseIcon } from "lucide-react";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type AccountType = "asset" | "liability" | "equity" | "income" | "expense";
 
@@ -61,12 +65,10 @@ interface Account {
   type: AccountType;
   description: string | null;
   is_active: boolean;
+  parent_id: string | null;
 }
 
-interface Client {
-  id: string;
-  name: string;
-}
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const accountTypeLabels: Record<AccountType, string> = {
   asset: "Assets",
@@ -84,18 +86,31 @@ const accountTypeColors: Record<AccountType, string> = {
   expense: "bg-destructive/10 text-destructive",
 };
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function AccountsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [selectedClient, setSelectedClient] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [deleteAccountId, setDeleteAccountId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
+
+  // Autocomplete state for account code selection in the Add/Edit dialog
+  const [showCodeSuggestions, setShowCodeSuggestions] = useState(false);
+
+  // Seeding state — used to populate the table with the default Chart of Accounts
+  const [seeding, setSeeding] = useState(false);
+
+  // A fallback client_id is needed for DB inserts because the accounts table
+  // has a NOT NULL foreign key constraint on client_id.  The Chart of Accounts
+  // is conceptually GLOBAL (shared across all clients), but the DB schema
+  // still requires a client_id.  We silently resolve the first available client
+  // and use it for all account inserts.
+  const [fallbackClientId, setFallbackClientId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     code: "",
@@ -106,7 +121,7 @@ export default function AccountsPage() {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         setSession(session);
         if (!session) {
           navigate("/auth");
@@ -119,7 +134,10 @@ export default function AccountsPage() {
       if (!session) {
         navigate("/auth");
       } else {
-        fetchClients();
+        // Chart of Accounts is GLOBAL — fetch all accounts and resolve a
+        // fallback client_id for DB constraint satisfaction.
+        fetchAccounts();
+        fetchFallbackClientId();
       }
       setLoading(false);
     });
@@ -127,39 +145,30 @@ export default function AccountsPage() {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
-  useEffect(() => {
-    if (selectedClient) {
-      fetchAccounts();
-    }
-  }, [selectedClient]);
-
-  const fetchClients = async () => {
-    const { data, error } = await supabase
-      .from("clients")
-      .select("id, name")
-      .order("name");
-
-    if (!error && data) {
-      setClients(data);
-      if (data.length > 0 && !selectedClient) {
-        setSelectedClient(data[0].id);
-      }
-    }
-  };
-
-  const fetchAccounts = async () => {
-    if (!selectedClient) return;
-
+  // WHY GLOBAL: The Chart of Accounts defines the universal accounting
+  // structure.  All clients share the same account codes (e.g. 1000 = Cash).
+  // Filtering by client would create per-client silos and break consistency.
+  const fetchAccounts = useCallback(async () => {
     const { data, error } = await supabase
       .from("accounts")
       .select("*")
-      .eq("client_id", selectedClient)
       .order("code");
 
     if (error) {
       toast.error("Failed to load accounts");
     } else {
       setAccounts(data || []);
+    }
+  }, []);
+
+  const fetchFallbackClientId = async () => {
+    const { data } = await supabase
+      .from("clients")
+      .select("id")
+      .order("name")
+      .limit(1);
+    if (data && data.length > 0) {
+      setFallbackClientId(data[0].id);
     }
   };
 
@@ -190,8 +199,14 @@ export default function AccountsPage() {
       return;
     }
 
+    if (!fallbackClientId) {
+      toast.error("No clients exist. Please create a client first.");
+      return;
+    }
+
+    // client_id is required by the DB but the account is logically global.
     const accountData = {
-      client_id: selectedClient,
+      client_id: fallbackClientId,
       code: formData.code.trim(),
       name: formData.name.trim(),
       type: formData.type,
@@ -266,6 +281,112 @@ export default function AccountsPage() {
     setErrors({});
   };
 
+  // ─── Seed default Chart of Accounts ────────────────────────────────────
+  // Populates the accounts table with the canonical 139-account structure.
+  // Inserts in sorted-code order so parents always exist before children.
+  // Skips any account code that already exists (no duplicates).
+  const handleSeedAccounts = async () => {
+    if (!fallbackClientId) {
+      toast.error("No clients exist. Please create a client first.");
+      return;
+    }
+
+    setSeeding(true);
+    try {
+      // Build set of existing codes to skip duplicates
+      const existingCodes = new Set(accounts.map((a) => a.code));
+
+      // Filter out accounts that already exist
+      const toInsert = CHART_OF_ACCOUNTS_SEED.filter(
+        (s) => !existingCodes.has(s.code)
+      );
+
+      if (toInsert.length === 0) {
+        toast.info("All accounts already exist. Nothing to seed.");
+        setSeeding(false);
+        return;
+      }
+
+      // Sort by code so parents are always inserted before children
+      const sorted = [...toInsert].sort((a, b) => a.code.localeCompare(b.code));
+
+      // Build a code→id map from existing DB accounts
+      const codeToId = new Map(accounts.map((a) => [a.code, a.id]));
+
+      // Insert in small batches to respect parent→child ordering.
+      // Each batch's parent_id is resolved from the codeToId map.
+      const BATCH_SIZE = 20;
+      let insertedCount = 0;
+
+      for (let i = 0; i < sorted.length; i += BATCH_SIZE) {
+        const batch = sorted.slice(i, i + BATCH_SIZE);
+        const payload = batch.map((row) => ({
+          client_id: fallbackClientId,
+          code: row.code,
+          name: row.name,
+          type: row.type,
+          description: row.description,
+          is_active: true,
+          // parentCode === null means root account → parent_id = null
+          parent_id: row.parentCode ? (codeToId.get(row.parentCode) ?? null) : null,
+        }));
+
+        const { data: inserted, error } = await supabase
+          .from("accounts")
+          .insert(payload)
+          .select("id, code");
+
+        if (error) {
+          toast.error(`Seed failed at batch ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+          break;
+        }
+
+        // Update code→id map with newly inserted accounts for next batch
+        if (inserted) {
+          for (const acc of inserted) {
+            codeToId.set(acc.code, acc.id);
+          }
+          insertedCount += inserted.length;
+        }
+      }
+
+      if (insertedCount > 0) {
+        toast.success(`Seeded ${insertedCount} account${insertedCount !== 1 ? "s" : ""} successfully`);
+        await fetchAccounts();
+      }
+    } catch (err: any) {
+      toast.error(`Seed failed: ${err?.message || "Unknown error"}`);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  // ─── Account code autocomplete handler ─────────────────────────────────
+  // When user selects an existing account code from the autocomplete dropdown,
+  // auto-fill account_name, type, and description into the form.
+  const handleCodeSelect = (account: Account) => {
+    setEditingAccount(account);
+    setFormData({
+      code: account.code,
+      name: account.name,
+      type: account.type,
+      description: account.description || "",
+    });
+    setShowCodeSuggestions(false);
+  };
+
+  // Filtered suggestions for the account code autocomplete.
+  // Matches on code or name, limited to 10 results for performance.
+  const codeSuggestions = formData.code.length > 0
+    ? accounts.filter(
+        (a) =>
+          a.code.toLowerCase().includes(formData.code.toLowerCase()) ||
+          a.name.toLowerCase().includes(formData.code.toLowerCase())
+      ).slice(0, 10)
+    : accounts.slice(0, 10);
+
+  // ─── Derived state ─────────────────────────────────────────────────────
+
   const filteredAccounts = accounts.filter(
     (a) =>
       a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -288,17 +409,17 @@ export default function AccountsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
+        {/* Header — no client selector; Chart of Accounts is global */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Chart of Accounts</h1>
             <p className="text-muted-foreground">
-              Manage account structure for financial reporting
+              Global account structure shared across all clients
             </p>
           </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={closeDialog} disabled={!selectedClient}>
+              <Button onClick={closeDialog} disabled={!fallbackClientId}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Account
               </Button>
@@ -311,23 +432,66 @@ export default function AccountsPage() {
                 <DialogDescription>
                   {editingAccount
                     ? "Update the account details."
-                    : "Create a new account in the chart of accounts."}
+                    : "Select an existing account code or enter a new one manually."}
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit}>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Account Code with autocomplete — type to search existing
+                        accounts. Selecting one auto-fills name, type, description. */}
                     <div className="space-y-2">
                       <Label htmlFor="code">Account Code *</Label>
-                      <Input
-                        id="code"
-                        value={formData.code}
-                        onChange={(e) =>
-                          setFormData({ ...formData, code: e.target.value })
-                        }
-                        placeholder="1000"
-                        className={cn(errors.code && "border-destructive")}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="code"
+                          value={formData.code}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFormData({ ...formData, code: val });
+                            setShowCodeSuggestions(true);
+                            // If user changes code away from the loaded account, reset editing
+                            if (editingAccount && editingAccount.code !== val) {
+                              setEditingAccount(null);
+                            }
+                          }}
+                          onFocus={() => {
+                            if (accounts.length > 0) setShowCodeSuggestions(true);
+                          }}
+                          onBlur={() => {
+                            // Delay hiding so clicks on suggestions register first
+                            setTimeout(() => setShowCodeSuggestions(false), 150);
+                          }}
+                          placeholder="Type code or search..."
+                          className={cn(errors.code && "border-destructive")}
+                          autoComplete="off"
+                        />
+                        {/* Autocomplete dropdown — shows existing accounts matching
+                            the typed code. Selecting auto-fills all form fields. */}
+                        {showCodeSuggestions && codeSuggestions.length > 0 && !editingAccount && (
+                          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                            {codeSuggestions.map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-accent text-sm flex items-center gap-2 transition-colors"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  handleCodeSelect(a);
+                                }}
+                              >
+                                <span className="font-mono text-xs text-muted-foreground w-14 shrink-0">
+                                  {a.code}
+                                </span>
+                                <span className="truncate">{a.name}</span>
+                                <span className={cn("ml-auto text-xs px-1.5 py-0.5 rounded", accountTypeColors[a.type])}>
+                                  {a.type}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {errors.code && (
                         <p className="text-sm text-destructive">{errors.code}</p>
                       )}
@@ -383,34 +547,22 @@ export default function AccountsPage() {
                       <p className="text-sm text-destructive">{errors.description}</p>
                     )}
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={closeDialog}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">
-                    {editingAccount ? "Save Changes" : "Add Account"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={closeDialog}>
+                      Cancel
+                    </Button>
+                    <Button type="submit">
+                      {editingAccount ? "Save Changes" : "Add Account"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
         </div>
 
-        {/* Filters */}
+        {/* Search filter — no client selector needed for global scope */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Select value={selectedClient} onValueChange={setSelectedClient}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select client" />
-            </SelectTrigger>
-            <SelectContent>
-              {clients.map((client) => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -420,37 +572,45 @@ export default function AccountsPage() {
               className="pl-9"
             />
           </div>
+          <p className="text-sm text-muted-foreground">
+            {accounts.length} account{accounts.length !== 1 ? "s" : ""} total
+          </p>
         </div>
 
-        {/* Accounts */}
-        {!selectedClient ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-muted/30 py-16">
-            <div className="rounded-full bg-muted p-4 mb-4">
-              <BookOpen className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-semibold mb-1">No client selected</h3>
-            <p className="text-sm text-muted-foreground">
-              Select a client to view their chart of accounts
-            </p>
-          </div>
-        ) : accounts.length === 0 ? (
+        {/* Accounts list */}
+        {accounts.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-muted/30 py-16">
             <div className="rounded-full bg-muted p-4 mb-4">
               <BookOpen className="h-8 w-8 text-muted-foreground" />
             </div>
             <h3 className="text-lg font-semibold mb-1">No accounts yet</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Create a chart of accounts for this client
+              Seed the default chart of accounts or add accounts manually
             </p>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Account
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleSeedAccounts} disabled={!fallbackClientId || seeding}>
+                {seeding ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Seeding...
+                  </>
+                ) : (
+                  <>
+                    <DatabaseIcon className="mr-2 h-4 w-4" />
+                    Seed Default Accounts
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => setIsDialogOpen(true)} disabled={!fallbackClientId}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Manually
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-6">
-            {groupedAccounts.map(({ type, accounts }) =>
-              accounts.length > 0 ? (
+            {groupedAccounts.map(({ type, accounts: accts }) =>
+              accts.length > 0 ? (
                 <div key={type} className="rounded-xl border bg-card overflow-hidden">
                   <div className="border-b bg-muted/30 px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -458,12 +618,12 @@ export default function AccountsPage() {
                         {accountTypeLabels[type]}
                       </span>
                       <span className="text-sm text-muted-foreground">
-                        {accounts.length} account{accounts.length !== 1 && "s"}
+                        {accts.length} account{accts.length !== 1 && "s"}
                       </span>
                     </div>
                   </div>
                   <div className="divide-y">
-                    {accounts.map((account) => (
+                    {accts.map((account) => (
                       <div
                         key={account.id}
                         className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
@@ -481,26 +641,33 @@ export default function AccountsPage() {
                             )}
                           </div>
                         </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEditDialog(account)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setDeleteAccountId(account.id)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="flex items-center gap-2">
+                          {!account.is_active && (
+                            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
+                              Inactive
+                            </span>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(account)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setDeleteAccountId(account.id)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
                     ))}
                   </div>
